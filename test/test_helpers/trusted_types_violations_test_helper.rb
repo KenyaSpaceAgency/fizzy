@@ -9,7 +9,9 @@
 # ends by grouping those by sink and source location into
 # tmp/trusted_types_violations.json.
 #
-# Only the default Capybara session is observed.
+# What it can't see, so read the inventory as a floor: windows other than the
+# one a test starts in, named Capybara sessions, cross-origin frames, records
+# left on another origin's sessionStorage, and writes after the final drain.
 module TrustedTypesViolationsTestHelper
   extend ActiveSupport::Concern
 
@@ -59,10 +61,8 @@ module TrustedTypesViolationsTestHelper
     end
 
     def write_inventory
-      if LOG.exist?
-        violations = LOG.each_line.map { |line| JSON.parse(line) }
-        INVENTORY.write JSON.pretty_generate(inventory_of(violations))
-      end
+      violations = LOG.exist? ? LOG.each_line.map { |line| JSON.parse(line) } : []
+      INVENTORY.write JSON.pretty_generate(inventory_of(violations))
     end
 
     private
@@ -107,6 +107,7 @@ module TrustedTypesViolationsTestHelper
     Minitest.after_run { TrustedTypesViolationsTestHelper.write_inventory }
 
     setup do
+      @trusted_types_window = page.current_window
       @trusted_types_listener = page.driver.browser.execute_cdp("Page.addScriptToEvaluateOnNewDocument", source: LISTENER)["identifier"]
     end
   end
@@ -114,17 +115,20 @@ module TrustedTypesViolationsTestHelper
   # Teardown callbacks run after Capybara has reset the session to a blank
   # page, so drain before then.
   def before_teardown
-    TrustedTypesViolationsTestHelper.record "#{self.class.name}##{name}", drain_trusted_types_violations
-    page.driver.browser.execute_cdp("Page.removeScriptToEvaluateOnNewDocument", identifier: @trusted_types_listener)
+    collect_trusted_types_violations
   ensure
     super
   end
 
   private
-    def drain_trusted_types_violations
-      JSON.parse(page.execute_script(DRAIN))
-    rescue Selenium::WebDriver::Error::WebDriverError => error
+    # The listener lives in the window the test started in, which the test
+    # may have switched away from or closed.
+    def collect_trusted_types_violations
+      within_window @trusted_types_window do
+        TrustedTypesViolationsTestHelper.record "#{self.class.name}##{name}", JSON.parse(page.execute_script(DRAIN))
+        page.driver.browser.execute_cdp("Page.removeScriptToEvaluateOnNewDocument", identifier: @trusted_types_listener)
+      end
+    rescue Selenium::WebDriver::Error::WebDriverError, Capybara::WindowError => error
       warn "Trusted Types inventory lost #{name}'s violations: #{error.class}"
-      []
     end
 end

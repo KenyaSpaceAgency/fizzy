@@ -17,7 +17,8 @@
 #   worker_src, frame_ancestors, form_action, report_uri, report_only
 #
 # config.x.content_security_policy.trusted_types_report_only (boolean): adds
-# the Trusted Types report-only policy below. On in the test environment only.
+# the Trusted Types report-only policy below, with no report URI, so nothing
+# leaves the browser. On in the test environment only.
 
 # Trusted Types report-only policy.
 #
@@ -121,7 +122,7 @@ Rails.application.configure do
   # Inserted outside the Rails CSP middleware so it runs after that header is
   # written, stacking beside an app policy that is itself report-only.
   if config.x.content_security_policy.trusted_types_report_only
-    config.middleware.insert_before ActionDispatch::ContentSecurityPolicy::Middleware, TrustedTypesReportOnly, report_uri
+    config.middleware.insert_before ActionDispatch::ContentSecurityPolicy::Middleware, TrustedTypesReportOnly
   end
 
   # Locked-down policy for the static pages served from public/ (error pages).
