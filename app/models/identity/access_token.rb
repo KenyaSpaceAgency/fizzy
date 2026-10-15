@@ -131,12 +131,12 @@ class Identity::AccessToken < ApplicationRecord
     end
 
     private
-      # Writes the digest with update_columns, so updated_at, a grant's idle
-      # clock, stays put.
+      # The digest goes to the primary even when the token was found on the
+      # replica, as GET requests read. update_columns leaves updated_at alone.
       def find_and_digest_undigested(raw)
         unless raw.start_with?(PREFIX)
           personal.where(token_digest: nil).find_by(token: raw)&.tap do |access_token|
-            access_token.update_columns token_digest: TokenDigester.digest(raw)
+            ApplicationRecord.with_writing_role { access_token.update_columns token_digest: TokenDigester.digest(raw) }
           end
         end
       end
