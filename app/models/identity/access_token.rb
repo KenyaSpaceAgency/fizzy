@@ -35,7 +35,6 @@ class Identity::AccessToken < ApplicationRecord
   # secrets are drawn here too (Oauth::Client), so every credential Fizzy
   # issues has one shape.
   PREFIXES = { personal: "fizzy_pat_", access: "fizzy_at_", refresh: "fizzy_rt_", client_secret: "fizzy_cs_" }
-  PREFIX = "fizzy_"
 
   # The base58 alphabet has_secure_token uses: no 0, O, I or l. Drawn through
   # Ruby's own SecureRandom, so it doesn't depend on ActiveSupport's base58
@@ -91,8 +90,8 @@ class Identity::AccessToken < ApplicationRecord
     # Finds the token within the current scope by its digest. A personal
     # access token written by code that stores only plaintext has no digest
     # yet, so it's found by plaintext and given one: no lookup but the first
-    # ever matches on plaintext. A prefixed token was issued by code that
-    # digests, so it never falls back.
+    # ever matches on plaintext. Code that stores only plaintext issues
+    # prefixed tokens too, so a prefix doesn't exempt a token from this.
     def find_by_raw_token(raw)
       if raw.is_a?(String) && raw.present?
         find_by(token_digest: TokenDigester.digests(raw)) || find_and_digest_undigested(raw)
@@ -131,13 +130,15 @@ class Identity::AccessToken < ApplicationRecord
     end
 
     private
+      # MySQL compares `token` case-insensitively, so a match is confirmed
+      # byte for byte: a differently cased token neither authenticates nor
+      # installs a digest that the real token would then never match.
+      #
       # The digest goes to the primary even when the token was found on the
       # replica, as GET requests read. update_columns leaves updated_at alone.
       def find_and_digest_undigested(raw)
-        unless raw.start_with?(PREFIX)
-          personal.where(token_digest: nil).find_by(token: raw)&.tap do |access_token|
-            ApplicationRecord.with_writing_role { access_token.update_columns token_digest: TokenDigester.digest(raw) }
-          end
+        personal.where(token_digest: nil, token: raw).detect { |candidate| candidate.token == raw }&.tap do |access_token|
+          ApplicationRecord.with_writing_role { access_token.update_columns token_digest: TokenDigester.digest(raw) }
         end
       end
   end

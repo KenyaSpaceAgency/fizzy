@@ -194,10 +194,23 @@ class Identity::AccessTokenTest < ActiveSupport::TestCase
     assert_equal TokenDigester.digest("legacyPersonalToken0123456789"), token.reload.token_digest
   end
 
-  test "a prefixed token is never looked up by plaintext" do
-    undigested_personal_token("fizzy_pat_#{"x" * 24}")
+  # Code that stores only plaintext issues prefixed personal access tokens too.
+  test "a prefixed personal access token without a digest is found by plaintext and digested" do
+    token = undigested_personal_token("fizzy_pat_#{"x" * 24}")
 
-    assert_nil Identity::AccessToken.find_honored("fizzy_pat_#{"x" * 24}")
+    assert_equal token, Identity::AccessToken.find_honored("fizzy_pat_#{"x" * 24}")
+    assert_equal TokenDigester.digest("fizzy_pat_#{"x" * 24}"), token.reload.token_digest
+  end
+
+  # MySQL's collation matches `token` case-insensitively.
+  test "a differently cased token neither authenticates nor digests the one it resembles" do
+    token = undigested_personal_token("legacyPersonalToken0123456789")
+
+    assert_nil Identity::AccessToken.find_honored("LEGACYPERSONALTOKEN0123456789")
+    assert_nil token.reload.token_digest
+
+    assert_equal token, Identity::AccessToken.find_honored("legacyPersonalToken0123456789")
+    assert_equal TokenDigester.digest("legacyPersonalToken0123456789"), token.reload.token_digest
   end
 
   test "only personal access tokens fall back to plaintext" do
