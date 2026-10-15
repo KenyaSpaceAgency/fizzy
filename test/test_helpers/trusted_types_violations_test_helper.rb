@@ -125,10 +125,23 @@ module TrustedTypesViolationsTestHelper
     # may have switched away from or closed.
     def collect_trusted_types_violations
       within_window @trusted_types_window do
-        TrustedTypesViolationsTestHelper.record "#{self.class.name}##{name}", JSON.parse(page.execute_script(DRAIN))
-        page.driver.browser.execute_cdp("Page.removeScriptToEvaluateOnNewDocument", identifier: @trusted_types_listener)
+        drain_trusted_types_violations
+      ensure
+        remove_trusted_types_listener
       end
     rescue Selenium::WebDriver::Error::WebDriverError, Capybara::WindowError => error
       warn "Trusted Types inventory lost #{name}'s violations: #{error.class}"
+    end
+
+    def drain_trusted_types_violations
+      TrustedTypesViolationsTestHelper.record "#{self.class.name}##{name}", JSON.parse(page.execute_script(DRAIN))
+    rescue Selenium::WebDriver::Error::WebDriverError => error
+      warn "Trusted Types inventory lost #{name}'s violations: #{error.class}"
+    end
+
+    # A listener left registered survives Capybara's reset and would record
+    # every later test's violations twice.
+    def remove_trusted_types_listener
+      page.driver.browser.execute_cdp("Page.removeScriptToEvaluateOnNewDocument", identifier: @trusted_types_listener)
     end
 end
