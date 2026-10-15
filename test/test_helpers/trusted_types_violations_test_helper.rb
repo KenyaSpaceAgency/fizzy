@@ -109,11 +109,15 @@ module TrustedTypesViolationsTestHelper
     setup do
       @trusted_types_listener = page.driver.browser.execute_cdp("Page.addScriptToEvaluateOnNewDocument", source: LISTENER)["identifier"]
     end
+  end
 
-    teardown do
-      TrustedTypesViolationsTestHelper.record "#{self.class.name}##{name}", drain_trusted_types_violations
-      page.driver.browser.execute_cdp("Page.removeScriptToEvaluateOnNewDocument", identifier: @trusted_types_listener)
-    end
+  # Teardown callbacks run after Capybara has reset the session to a blank
+  # page, so drain before then.
+  def before_teardown
+    TrustedTypesViolationsTestHelper.record "#{self.class.name}##{name}", drain_trusted_types_violations
+    page.driver.browser.execute_cdp("Page.removeScriptToEvaluateOnNewDocument", identifier: @trusted_types_listener)
+  ensure
+    super
   end
 
   private
