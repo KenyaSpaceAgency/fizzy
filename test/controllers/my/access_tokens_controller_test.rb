@@ -155,7 +155,9 @@ class My::AccessTokensControllerTest < ActionDispatch::IntegrationTest
       response.body[/value="(fizzy_pat_\w+)"/, 1]
     end
 
+    # Temporary, so Turbo's snapshot cache doesn't keep the token for Back to restore.
     def assert_revealed(access_token)
       assert_equal access_token.token_digest, TokenDigester.digest(token_in_body)
+      assert_match(/<article id="new_access_token"[^>]* data-turbo-temporary[ >]/, response.body)
     end
 end

@@ -1,4 +1,5 @@
-<article id="new_access_token" class="panel panel--wide shadow center txt-align-start" style="view-transition-name: <%= dom_id(access_token) %>">
+<%# Temporary, so Turbo's snapshot cache doesn't keep the token for Back to restore. %>
+<article id="new_access_token" class="panel panel--wide shadow center txt-align-start" style="view-transition-name: <%= dom_id(access_token) %>" data-turbo-temporary>
   <div class="flex flex-column gap">
     <label class="flex flex-column gap-half txt-align-start">
       <strong><%= access_token.description %> (<%= access_token.permission == "write" ? "Read + Write" : "Read" %>)</strong>
