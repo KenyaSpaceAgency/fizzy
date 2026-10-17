@@ -452,7 +452,7 @@ class OauthFlowTest < ActionDispatch::IntegrationTest
 
     query = Rack::Utils.parse_query(URI.parse(response.location).query)
     assert_equal "acme", query["tenant"]
-    assert_equal "http://www.example.com/", query["iss"]
+    assert_equal "http://www.example.com", query["iss"]
   end
 
   test "consent screen lets the form redirect to the validated loopback origin" do
@@ -1534,7 +1534,7 @@ class OauthFlowTest < ActionDispatch::IntegrationTest
     assert_response :success
     body = response.parsed_body
 
-    assert_equal "http://www.example.com/", body["issuer"]
+    assert_equal "http://www.example.com", body["issuer"], "the issuer is the origin, with no trailing slash"
     assert_match %r{/oauth/authorization/new$}, body["authorization_endpoint"]
     assert_match %r{/oauth/token$}, body["token_endpoint"]
     assert_match %r{/oauth/clients$}, body["registration_endpoint"]
@@ -1558,7 +1558,15 @@ class OauthFlowTest < ActionDispatch::IntegrationTest
     body = response.parsed_body
 
     assert_equal "http://www.example.com/", body["resource"]
-    assert_includes body["authorization_servers"], "http://www.example.com/"
+    assert_equal [ "http://www.example.com" ], body["authorization_servers"]
+  end
+
+  test "the protected resource names exactly the issuer the authorization server advertises" do
+    untenanted { get "/.well-known/oauth-authorization-server" }
+    issuer = response.parsed_body["issuer"]
+
+    untenanted { get "/.well-known/oauth-protected-resource" }
+    assert_equal [ issuer ], response.parsed_body["authorization_servers"]
   end
 
 

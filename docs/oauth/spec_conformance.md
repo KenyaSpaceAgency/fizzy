@@ -128,7 +128,7 @@ Status key:
 
 | Requirement | Status |
 |---|---|
-| `iss` on success and error redirects, equal to the metadata issuer; `authorization_response_iss_parameter_supported: true` (mix-up defense, RFC 9700 §4.4) | **Fixed** #2296 `d468283d7`. A single `Oauth::BaseController#oauth_issuer` feeds both the redirect and the metadata. |
+| `iss` on success and error redirects, equal to the metadata issuer; `authorization_response_iss_parameter_supported: true` (mix-up defense, RFC 9700 §4.4) | **Fixed** #2296 `d468283d7`. A single `Oauth::BaseController#oauth_issuer` feeds the redirect, the metadata and the protected resource's `authorization_servers`. It's the origin with no trailing slash (`https://app.fizzy.do`), as bc3's `canonical_issuer_url`, since clients compare issuers as exact strings (RFC 8414 §3.3); #3192 dropped the slash `root_url` gave it. |
 
 ## RFC 9700: open redirector
 
