@@ -101,6 +101,7 @@ class OauthClientSecretBasicTest < ActionDispatch::IntegrationTest
   test "a bare Basic scheme is a failed attempt, not an absent one" do
     client = oauth_clients(:mcp_client)
     token = grant_for(client)
+    refresh_token = token.refresh_token
     personal = identities(:david).access_tokens.create!(description: "Personal")
 
     [ "Basic", "Basic ", "basic" ].each do |header|
@@ -112,7 +113,7 @@ class OauthClientSecretBasicTest < ActionDispatch::IntegrationTest
     end
 
     assert Identity::AccessToken.exists?(personal.id)
-    assert_equal token.refresh_token, token.reload.refresh_token
+    assert_equal refresh_token, token.reload.refresh_token
   end
 
   test "Basic naming a public client fails: a public client holds no password" do
