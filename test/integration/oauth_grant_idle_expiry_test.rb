@@ -62,11 +62,13 @@ class OauthGrantIdleExpiryTest < ActionDispatch::IntegrationTest
   end
 
   test "the sweep spares a grant renewed after it was selected" do
-    selected = Identity::AccessToken.where(id: @grant.id)
-    Identity::AccessToken.stubs(:lapsed).returns(selected)
-
     later_by Identity::AccessToken::REFRESH_IDLE_LIMIT + 1.second
-    selected.update_all(updated_at: Time.current)
+    # The sweep holds the grant as it was read when selected, before the renewal.
+    selection = stub
+    selection.stubs(:find_each).yields(Identity::AccessToken.find(@grant.id))
+    Identity::AccessToken.stubs(:lapsed).returns(selection)
+
+    Identity::AccessToken.where(id: @grant.id).update_all(updated_at: Time.current)
     Identity::AccessToken.cleanup
 
     assert Identity::AccessToken.exists?(@grant.id)
