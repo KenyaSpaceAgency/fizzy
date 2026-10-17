@@ -136,9 +136,14 @@ class Identity::AccessToken < ApplicationRecord
       #
       # The digest goes to the primary even when the token was found on the
       # replica, as GET requests read. update_columns leaves updated_at alone.
+      # A datacenter that can't reach the primary (Deployment::DatabaseResolver)
+      # still authenticates the token and leaves the digest to one that can,
+      # or to the backfill rerun.
       def find_and_digest_undigested(raw)
         personal.where(token_digest: nil, token: raw).detect { |candidate| candidate.token == raw }&.tap do |access_token|
-          ApplicationRecord.with_writing_role { access_token.update_columns token_digest: TokenDigester.digest(raw) }
+          if Deployment::DatabaseResolver.in_primary_datacenter?
+            ApplicationRecord.with_writing_role { access_token.update_columns token_digest: TokenDigester.digest(raw) }
+          end
         end
       end
   end

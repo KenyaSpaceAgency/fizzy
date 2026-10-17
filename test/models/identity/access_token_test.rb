@@ -194,6 +194,17 @@ class Identity::AccessTokenTest < ActiveSupport::TestCase
     assert_equal TokenDigester.digest("legacyPersonalToken0123456789"), token.reload.token_digest
   end
 
+  # Non-primary datacenters read local replicas and can't reach the primary.
+  test "a personal access token without a digest authenticates outside the primary datacenter, undigested" do
+    token = undigested_personal_token("legacyPersonalToken0123456789")
+    Deployment::DatabaseResolver.stubs(:in_primary_datacenter?).returns(false)
+
+    statements = capture_sql { assert_equal token, Identity::AccessToken.find_honored("legacyPersonalToken0123456789") }
+
+    assert statements.none? { |sql| sql.match?(/\AUPDATE/i) }, statements.join("\n")
+    assert_nil token.reload.token_digest
+  end
+
   # Code that stores only plaintext issues prefixed personal access tokens too.
   test "a prefixed personal access token without a digest is found by plaintext and digested" do
     token = undigested_personal_token("fizzy_pat_#{"x" * 24}")
