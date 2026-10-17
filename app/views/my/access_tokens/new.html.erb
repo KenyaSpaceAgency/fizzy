@@ -1,4 +1,6 @@
 <% @page_title = "Generate a personal access token" %>
+<%# Never snapshotted: once the form gives way to the revealed token, Back must fetch a fresh form, not restore a page holding neither. %>
+<% turbo_exempts_page_from_cache %>
 
 <% content_for :header do %>
   <div class="header__actions header__actions--start">

@@ -24,6 +24,7 @@ class My::AccessTokensControllerTest < ActionDispatch::IntegrationTest
 
     get new_my_access_token_path
     assert_response :success
+    assert_select "meta[name=turbo-cache-control][content=no-cache]"
 
     assert_changes -> { identities(:kevin).access_tokens.count }, +1 do
       post my_access_tokens_path, params: { access_token: { description: "GitHub", permission: "read" } }
