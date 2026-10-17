@@ -25,6 +25,15 @@ class OauthDelegateResourcesTest < ActionDispatch::IntegrationTest
     assert_equal @client, app_subscription.oauth_client
   end
 
+  test "a push subscription records its app as it's inserted, not in a second write" do
+    Push::Subscription.any_instance.stubs(:claim_for)
+
+    subscribe_push bearer(@grant)
+
+    assert_response :created
+    assert_equal @client, app_subscription.oauth_client
+  end
+
   test "disconnecting the app removes its push subscriptions" do
     subscribe_push bearer(@grant)
 
@@ -182,6 +191,30 @@ class OauthDelegateResourcesTest < ActionDispatch::IntegrationTest
     webhook = Webhook.find_by!(name: "Mine")
     assert_equal users(:kevin), webhook.creator
     assert_nil webhook.created_via
+  end
+
+  test "an app editing a webhook set up in a session doesn't become its author" do
+    webhook = Webhook.create!(board: boards(:writebook), name: "Mine", url: "https://example.com/mine", creator: users(:kevin))
+
+    patch board_webhook_path(webhook.board, webhook), params: { webhook: { name: "Renamed" } }, env: bearer(@grant), as: :json
+    assert_response :success
+
+    assert_equal "Renamed", webhook.reload.name
+    assert_equal users(:kevin), webhook.creator
+    assert_nil webhook.created_via
+    assert_not_includes Webhook.set_up_through(@client, identity: identities(:kevin)), webhook
+  end
+
+  test "Connected Apps leaves alone an app's webhooks on a board the person was taken off" do
+    webhook = create_webhook bearer(@grant)
+    Access.where(user: users(:kevin), board: webhook.board).delete_all
+
+    assert_not_includes Webhook.set_up_through(@client, identity: identities(:kevin)), webhook
+
+    sign_in_as :kevin
+    delete my_connected_app_path(@client), params: { remove_webhooks: "1", webhook_ids: [ webhook.id ] }
+
+    assert Webhook.exists?(webhook.id)
   end
 
   test "a webhook created through a grant survives disconnecting, attributed to the person and the app" do
