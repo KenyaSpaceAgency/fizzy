@@ -2,6 +2,8 @@ class Oauth::AuthorizationsController < Oauth::BaseController
   FORM_ACTION_ORIGIN = %r{\Ahttps?://[a-z0-9.-]+(:\d+)?\z}i
   FORM_ACTION_SCHEME = /\A[a-z][a-z0-9+.-]*\z/i
   STATE_MAXIMUM_LENGTH = 2048
+  # An S256 challenge is the unpadded base64url SHA-256 of the verifier: 43 characters (RFC 7636 §4.2).
+  S256_CODE_CHALLENGE = /\A[A-Za-z0-9_-]{43}\z/
   RETURN_URL_MAXIMUM_LENGTH = 2000
 
   # Browsers apply form-action to every hop of a form submission, redirects
@@ -82,6 +84,10 @@ class Oauth::AuthorizationsController < Oauth::BaseController
     def validate_pkce
       unless performed? || params[:code_challenge].present?
         redirect_with_error "invalid_request", "code_challenge is required"
+      end
+
+      unless performed? || params[:code_challenge].is_a?(String) && params[:code_challenge].match?(S256_CODE_CHALLENGE)
+        redirect_with_error "invalid_request", "code_challenge must be an S256 challenge"
       end
 
       unless performed? || params[:code_challenge_method] == "S256"

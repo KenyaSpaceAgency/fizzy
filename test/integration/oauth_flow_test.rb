@@ -215,6 +215,29 @@ class OauthFlowTest < ActionDispatch::IntegrationTest
     assert_nil session[:return_to_after_authenticating]
   end
 
+  test "authorization refuses a code_challenge that isn't an S256 challenge" do
+    sign_in_as :david
+    client = oauth_clients(:mcp_client)
+
+    [ [ "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM" ], "too-short", "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM=" ].each do |code_challenge|
+      untenanted do
+        post oauth_authorization_path, params: {
+          client_id: client.client_id,
+          redirect_uri: "http://127.0.0.1:8888/callback",
+          response_type: "code",
+          code_challenge: code_challenge,
+          code_challenge_method: "S256",
+          scope: "read"
+        }
+      end
+
+      assert_response :redirect
+      params = CGI.parse(URI.parse(response.location).query)
+      assert_equal "invalid_request", params["error"].first, code_challenge.inspect
+      assert_not params.key?("code")
+    end
+  end
+
   test "authorization refuses a state that isn't a single string" do
     sign_in_as :david
     client = oauth_clients(:mcp_client)
