@@ -2,9 +2,6 @@ class Oauth::ClientsController < Oauth::BaseController
   allow_unauthenticated_access
   skip_forgery_protection
 
-  # A before_action so error responses are not cached either.
-  before_action :prevent_caching
-
   rate_limit to: 10, within: 1.minute, only: :create, with: :oauth_rate_limit_exceeded
 
   before_action :require_issuance_enabled

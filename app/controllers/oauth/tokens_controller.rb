@@ -4,10 +4,6 @@ class Oauth::TokensController < Oauth::BaseController
   allow_unauthenticated_access
   skip_forgery_protection
 
-  # A before_action, not after: a halted callback chain skips after_actions,
-  # and error responses must not be cached either (RFC 6749 §5.1, §5.2).
-  before_action :prevent_caching
-
   rate_limit to: 20, within: 1.minute, only: :create, with: :oauth_rate_limit_exceeded
 
   before_action :require_issuance_enabled
