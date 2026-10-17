@@ -10,7 +10,9 @@
 # registered token_endpoint_auth_method is advisory. Using both at once is
 # refused, since a client MUST NOT use more than one method per request (§2.3).
 module Oauth::ClientAuthentication
-  BASIC_SCHEME = /\ABasic /i
+  # The scheme alone, credentials or not: a bare "Basic" is a malformed attempt,
+  # not an absent one.
+  BASIC_SCHEME = /\ABasic(?: |\z)/i
 
   private
     # RFC 6749 §5.2 names more than one authentication method invalid_request.

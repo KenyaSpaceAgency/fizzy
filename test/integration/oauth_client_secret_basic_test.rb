@@ -98,6 +98,23 @@ class OauthClientSecretBasicTest < ActionDispatch::IntegrationTest
     assert_equal token.refresh_token, token.reload.refresh_token
   end
 
+  test "a bare Basic scheme is a failed attempt, not an absent one" do
+    client = oauth_clients(:mcp_client)
+    token = grant_for(client)
+    personal = identities(:david).access_tokens.create!(description: "Personal")
+
+    [ "Basic", "Basic ", "basic" ].each do |header|
+      refresh token, params: { client_id: client.client_id }, headers: { "Authorization" => header }
+      assert_client_authentication_failed header
+
+      untenanted { post oauth_revocation_path, params: { token: personal.token }, headers: { "Authorization" => header } }
+      assert_client_authentication_failed header
+    end
+
+    assert Identity::AccessToken.exists?(personal.id)
+    assert_equal token.refresh_token, token.reload.refresh_token
+  end
+
   test "Basic naming a public client fails: a public client holds no password" do
     client = oauth_clients(:mcp_client)
     token = grant_for(client)
