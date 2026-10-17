@@ -95,7 +95,9 @@ module Authentication
     # A token that is unknown, expired, revoked or not honored is invalid_token,
     # which tells an OAuth client to refresh. A good token without the permission
     # the method needs is insufficient_scope: refreshing can't widen a grant, so
-    # the client must ask for write instead (RFC 6750 §3.1).
+    # the client must ask for write instead (RFC 6750 §3.1). That's a 403 for an
+    # app's grant, but a personal access token keeps the 401 shipped clients
+    # (fizzy-cli, the native apps) have always had for it.
     def authenticate_with_bearer_token
       access_token = authenticate_with_http_token(scheme: "Bearer") { |token| Identity::AccessToken.find_honored(token) }
 
@@ -103,8 +105,8 @@ module Authentication
         Current.access_token = access_token
         Current.identity = access_token.identity
       elsif access_token
-        request_bearer_authentication status: :forbidden, error: "insufficient_scope",
-          error_description: "The access token is read-only", scope: "write"
+        request_bearer_authentication status: access_token.oauth_client_id? ? :forbidden : :unauthorized,
+          error: "insufficient_scope", error_description: "The access token is read-only", scope: "write"
       else
         request_bearer_authentication error: "invalid_token", error_description: "The access token is expired, revoked, or invalid"
       end
@@ -114,24 +116,18 @@ module Authentication
       request.format.json?
     end
 
+    # A request with no credentials goes to sign in, JSON included. RFC 6750 §3
+    # would have an API request challenged instead, but shipped clients (the
+    # native apps, fizzy-cli) rely on the redirect, so it stays until the oldest
+    # supported one handles a challenge (docs/oauth.md, DS-3). OAuth clients
+    # don't need it to find us: they discover through the MCP server's challenge
+    # and our /.well-known metadata.
     def request_authentication
-      if bearer_challengeable_request?
-        request_bearer_authentication
-      else
-        if Current.account.present?
-          session[:return_to_after_authenticating] = request.url
-        end
-
-        redirect_to_login_url
+      if Current.account.present?
+        session[:return_to_after_authenticating] = request.url
       end
-    end
 
-    # API clients that sent no credentials get a challenge rather than a sign-in
-    # page (RFC 6750 §3). Our own pages keep the redirect: they send a session
-    # cookie, stale or not, or ask over XHR, and @rails/request.js navigates to a
-    # 401's WWW-Authenticate value as if it were a URL.
-    def bearer_challengeable_request?
-      request.format.json? && !request.xhr? && cookies[:session_token].blank?
+      redirect_to_login_url
     end
 
     def request_bearer_authentication(status: :unauthorized, **params)

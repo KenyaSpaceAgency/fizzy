@@ -81,12 +81,22 @@ class ApiTest < ActionDispatch::IntegrationTest
 
   test "changing data requires a write-endowed access token" do
     post boards_path(format: :json), params: { board: { name: "My new board" } }, env: @jasons_bearer_token
-    assert_response :forbidden
+    assert_response :unauthorized
     assert_bearer_challenge error: "insufficient_scope"
     assert_match 'scope="write"', response.headers["WWW-Authenticate"]
 
     post boards_path(format: :json), params: { board: { name: "My new board" } }, env: @davids_bearer_token
     assert_response :success
+  end
+
+  test "a read-only grant changing data is forbidden, so the app asks for write" do
+    token = identities(:jason).access_tokens.create!(oauth_client: oauth_clients(:mcp_client), permission: :read)
+
+    post boards_path(format: :json), params: { board: { name: "My new board" } }, env: bearer_token_env(token.token)
+
+    assert_response :forbidden
+    assert_bearer_challenge error: "insufficient_scope"
+    assert_match 'scope="write"', response.headers["WWW-Authenticate"]
   end
 
   test "a read-only token still reads" do
@@ -105,16 +115,15 @@ class ApiTest < ActionDispatch::IntegrationTest
     assert_bearer_challenge error: "invalid_token"
   end
 
-  test "a JSON request without credentials is challenged instead of redirected to sign in" do
+  test "a JSON request without credentials goes to sign in, as shipped clients expect" do
     get boards_path(format: :json)
 
-    assert_response :unauthorized
-    assert_bearer_challenge
-    assert_no_match "error=", response.headers["WWW-Authenticate"]
+    assert_response :redirect
+    assert_nil response.headers["WWW-Authenticate"]
   end
 
   test "the challenge names protected resource metadata that resolves" do
-    get boards_path(format: :json)
+    get boards_path(format: :json), env: bearer_token_env("nonsense")
     metadata_url = response.headers["WWW-Authenticate"][/resource_metadata="([^"]+)"/, 1]
 
     get URI(metadata_url).request_uri
@@ -124,14 +133,14 @@ class ApiTest < ActionDispatch::IntegrationTest
 
   test "the challenge leaves out resource metadata while OAuth is dark" do
     with_oauth_availability acceptance: false do
-      get boards_path(format: :json)
+      get boards_path(format: :json), env: bearer_token_env("nonsense")
     end
 
     assert_response :unauthorized
-    assert_match(/\ABearer realm="Application"\z/, response.headers["WWW-Authenticate"])
+    assert_no_match "resource_metadata", response.headers["WWW-Authenticate"]
   end
 
-  test "a JSON request from our own pages without a session still goes to sign in" do
+  test "a JSON request from our own pages without a session goes to sign in" do
     get boards_path(format: :json), xhr: true
     assert_response :redirect
 
@@ -157,8 +166,7 @@ class ApiTest < ActionDispatch::IntegrationTest
   test "Bearer elsewhere in another scheme's credentials is not bearer authentication" do
     get boards_path(format: :json), env: { "HTTP_AUTHORIZATION" => "Basic Bearer #{identity_access_tokens(:davids_api_token).token}" }
 
-    assert_response :unauthorized
-    assert_no_match "error=", response.headers["WWW-Authenticate"]
+    assert_response :redirect
   end
 
   test "a bearer token on an HTML request is refused with a Bearer challenge" do

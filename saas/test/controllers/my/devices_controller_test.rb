@@ -144,7 +144,7 @@ class My::DevicesControllerTest < ActionDispatch::IntegrationTest
       }, as: :json
     end
 
-    assert_response :unauthorized
+    assert_response :redirect
   end
 
   test "destroys device by id" do
@@ -251,7 +251,7 @@ class My::DevicesControllerTest < ActionDispatch::IntegrationTest
 
     untenanted { delete saas.my_device_path("my_token"), as: :json }
 
-    assert_response :unauthorized
+    assert_response :redirect
     assert ApplicationPushDevice.exists?(device.id)
   end
 end

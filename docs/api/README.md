@@ -94,9 +94,9 @@ When a request fails, the API response will communicate the source of the proble
 
 Authentication failures carry a `WWW-Authenticate: Bearer` challenge (RFC 6750) that says what went wrong:
 
-- A request with no credentials gets `401` and a challenge with no `error`.
+- A request with no credentials is redirected to sign in (`302` to `/session/new`), JSON included.
 - An access token that is expired, revoked or unknown gets `401` with `error="invalid_token"`. For an OAuth token, refresh it and retry.
-- A read-only access token used to change data gets `403` with `error="insufficient_scope", scope="write"`. Refreshing won't help: get a token with write access.
+- A read-only token used to change data gets `error="insufficient_scope", scope="write"`: `403` for an OAuth app's token, `401` for a personal access token. Refreshing won't help: get a token with write access.
 
 ```
 WWW-Authenticate: Bearer realm="Application", resource_metadata="https://app.fizzy.do/.well-known/oauth-protected-resource", error="invalid_token", error_description="The access token is expired, revoked, or invalid"
