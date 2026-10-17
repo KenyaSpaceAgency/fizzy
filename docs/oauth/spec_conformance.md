@@ -88,7 +88,7 @@ Status key:
 
 | Requirement | Status |
 |---|---|
-| Rotation on every refresh, atomic (compare-and-swap); a concurrent loser gets `invalid_grant` | **Conformant** (#3081) |
+| Rotation on every refresh, atomic (compare-and-swap). A concurrent loser is a retry of the winning rotation: within the 60-second grace it gets the winner's pair, as a retry would (#3160); past it, it's a replay | **Conformant** (#3081, #3160) |
 | Refresh may narrow scope, never widen it; blank or `null` scope is refused | **Conformant** (#3081 `4076dd17a`, `81dbfc5d3`, `c2d67e88d`) |
 | `client_id` required and must match the grant | **Conformant** (#3081 `f9a1885ff`) |
 | Public clients' refresh tokens MUST be sender-constrained, or rotated **with replay detection**: presenting a rotated-out token revokes the live one (OAuth 2.1 §4.3.1, RFC 9700 §4.14.2) | **Fixed** #3160 `cf4aa3192` "Revoke the grant when a rotated refresh token is replayed, with a retry grace". A replay revokes the grant. A retry within 60s, while the successor is still current, gets that successor, as in bc3. |
