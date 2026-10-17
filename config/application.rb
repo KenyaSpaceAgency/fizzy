@@ -12,8 +12,10 @@ module Fizzy
 
     # Set here rather than in an initializer: Active Record copies these into filter_attributes when it
     # loads, and config/initializers/extensions.rb loads it before later initializers run.
+    #
+    # `code` covers the sign-in code a magic link is redeemed with, and the join code in /join/:code.
     config.filter_parameters += %i[
-      passw secret token _key crypt salt certificate otp ssn
+      passw secret token _key crypt salt certificate otp ssn code
     ]
 
     # Include the `lib` directory in autoload paths. Use the `ignore:` option
