@@ -8,6 +8,8 @@ require "test_helper"
 # they outlive the grant, attributed to the person and the app, and the
 # person may choose to remove them when they disconnect the app.
 class OauthDelegateResourcesTest < ActionDispatch::IntegrationTest
+  include OauthAvailabilityTestHelper
+
   ENDPOINT = "https://fcm.googleapis.com/fcm/send/app-device"
   BROWSER = "https://fcm.googleapis.com/fcm/send/browser"
 
@@ -113,6 +115,18 @@ class OauthDelegateResourcesTest < ActionDispatch::IntegrationTest
     users(:kevin).push_subscriptions.create!(push_params(BROWSER))
 
     assert_equal [ BROWSER, ENDPOINT ].sort, delivered_endpoints.sort
+  end
+
+  test "an app's push subscription stops delivering while OAuth is dark, unless the app is piloting" do
+    subscribe_push bearer(@grant)
+
+    with_oauth_availability acceptance: false do
+      assert_not_includes delivered_endpoints, ENDPOINT
+    end
+
+    with_oauth_availability acceptance: false, pilot_client_ids: [ @client.client_id ] do
+      assert_includes delivered_endpoints, ENDPOINT
+    end
   end
 
   test "an app's push subscription stops delivering when the user leaves the account" do

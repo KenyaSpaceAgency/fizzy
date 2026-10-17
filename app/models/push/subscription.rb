@@ -22,9 +22,12 @@ class Push::Subscription < ApplicationRecord
   # grant ending, lapsing before the sweep, the user leaving the account or
   # moving to another identity, a claim racing the last grant's end), where
   # the cleanup on grant destroy only finds what the identity still reaches.
+  # The grant must also be one Fizzy honors (Oauth::Availability): while
+  # OAuth is dark, an app whose tokens are refused gets no notifications
+  # either.
   scope :deliverable_to, ->(user) do
     where(oauth_client_id: nil).or \
-      where(oauth_client_id: Identity::AccessToken.oauth.unlapsed.where(identity_id: user.identity_id).select(:oauth_client_id))
+      where(oauth_client_id: Identity::AccessToken.oauth.unlapsed.where(identity_id: user.identity_id, oauth_client: Oauth::Availability.accepted_clients).select(:oauth_client_id))
   end
 
   validates :endpoint, presence: true
