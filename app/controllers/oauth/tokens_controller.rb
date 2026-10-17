@@ -31,10 +31,12 @@ class Oauth::TokensController < Oauth::BaseController
     before_action :set_identity
   end
 
-  # A replay outside the grace window is revoked before any scope is weighed,
-  # so no scope parameter can steer it around the revocation it earns. A retry
-  # inside the window is weighed like the live refresh it repeats.
-  before_action :set_refresh_scope, unless: -> { authorization_code_grant? || revocable_replay? }
+  # A replay that can't be a retry is answered before any scope is weighed:
+  # outside the grace window it's revoked, so no scope parameter can steer it
+  # around the revocation it earns, and inside the window one whose successor
+  # has rotated is refused as superseded, whatever scope it asks for. A retry
+  # is weighed like the live refresh it repeats.
+  before_action :set_refresh_scope, unless: -> { authorization_code_grant? || unretryable_replay? }
 
   def create
     if authorization_code_grant?
@@ -143,8 +145,10 @@ class Oauth::TokensController < Oauth::BaseController
       end
     end
 
-    def revocable_replay?
-      @retired_refresh_token && !@retired_refresh_token.within_grace?
+    # Superseded only ever stays superseded, so a replay judged unretryable
+    # here is still unretryable when answer_refresh_replay reads the grant.
+    def unretryable_replay?
+      @retired_refresh_token && !@retired_refresh_token.retryable?(@access_token)
     end
 
     # A refresh request may narrow scope but never widen it (RFC 6749 §6). An

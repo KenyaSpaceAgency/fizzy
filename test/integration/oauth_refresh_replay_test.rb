@@ -79,6 +79,25 @@ class OauthRefreshReplayTest < ActionDispatch::IntegrationTest
     assert_equal successor["refresh_token"], @grant.reload.refresh_token
   end
 
+  test "a superseded retry within the grace window is refused as superseded, whatever scope it asks for" do
+    ancestor = @grant.refresh_token
+    refresh ancestor
+    travel 1.second
+    refresh response.parsed_body["refresh_token"]
+
+    travel 1.second
+    [ "admin", "", "write" ].each do |scope|
+      untenanted do
+        post oauth_token_path, params: { grant_type: "refresh_token", refresh_token: ancestor, client_id: @client.client_id, scope: scope }
+      end
+
+      assert_response :bad_request
+      assert_equal "invalid_grant", response.parsed_body["error"], "scope #{scope.inspect}"
+    end
+
+    assert Identity::AccessToken.exists?(@grant.id)
+  end
+
   test "a replay asking for a scope beyond the grant still revokes it" do
     presented = @grant.refresh_token
     refresh presented
