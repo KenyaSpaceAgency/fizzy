@@ -1,6 +1,8 @@
 class Oauth::AuthorizationsController < Oauth::BaseController
   FORM_ACTION_ORIGIN = %r{\Ahttps?://[a-z0-9.-]+(:\d+)?\z}i
   FORM_ACTION_SCHEME = /\A[a-z][a-z0-9+.-]*\z/i
+  STATE_MAXIMUM_LENGTH = 2048
+  RETURN_URL_MAXIMUM_LENGTH = 2000
 
   # Browsers apply form-action to every hop of a form submission, redirects
   # included, so the app-wide form-action 'self' would block the consent POST's
@@ -50,8 +52,14 @@ class Oauth::AuthorizationsController < Oauth::BaseController
       request.post? && params[:error] == "access_denied"
     end
 
+    # Runs before authentication, so a person already signed in is told apart
+    # by their session cookie. The URL goes into the cookie-stored session,
+    # which overflows (a 500) past 4KB once encrypted, so a request too long to
+    # keep isn't kept: the person signs in and starts again from the app.
     def save_oauth_return_url
-      session[:return_to_after_authenticating] = request.url if request.get? && !authenticated?
+      if request.get? && !find_session_by_cookie && request.url.bytesize <= RETURN_URL_MAXIMUM_LENGTH
+        session[:return_to_after_authenticating] = request.url
+      end
     end
 
     def set_client
@@ -87,10 +95,18 @@ class Oauth::AuthorizationsController < Oauth::BaseController
       end
     end
 
+    # state is optional: PKCE is the CSRF defence (OAuth 2.1 §7.5.1), so a
+    # client that doesn't send it isn't refused. One that does gets it back
+    # exactly, and it must be a single string of bounded length, since it is
+    # carried through the consent form and into the redirect.
     def validate_state
-      unless performed? || params[:state].present?
-        redirect_with_error "invalid_request", "state is required"
+      unless performed? || valid_state?
+        redirect_with_error "invalid_request", "state must be a string of at most #{STATE_MAXIMUM_LENGTH} characters"
       end
+    end
+
+    def valid_state?
+      params[:state].nil? || (params[:state].is_a?(String) && params[:state].length <= STATE_MAXIMUM_LENGTH)
     end
 
     def redirect_with_error(error, description)

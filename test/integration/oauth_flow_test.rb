@@ -126,6 +126,115 @@ class OauthFlowTest < ActionDispatch::IntegrationTest
   end
 
 
+  test "authorization consent issues a code without state, and returns none" do
+    sign_in_as :david
+    client = oauth_clients(:mcp_client)
+
+    untenanted do
+      get new_oauth_authorization_path, params: {
+        client_id: client.client_id,
+        redirect_uri: "http://127.0.0.1:8888/callback",
+        response_type: "code",
+        code_challenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+        code_challenge_method: "S256",
+        scope: "read"
+      }
+    end
+
+    assert_response :success
+
+    untenanted do
+      post oauth_authorization_path, params: {
+        client_id: client.client_id,
+        redirect_uri: "http://127.0.0.1:8888/callback",
+        response_type: "code",
+        code_challenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+        code_challenge_method: "S256",
+        scope: "read",
+        state: ""
+      }
+    end
+
+    assert_response :redirect
+    params = CGI.parse(URI.parse(response.location).query)
+    assert_not_nil params["code"]&.first
+    assert_not params.key?("state")
+  end
+
+  test "authorization echoes a state of the maximum length and refuses a longer one" do
+    sign_in_as :david
+    client = oauth_clients(:mcp_client)
+    authorization = {
+      client_id: client.client_id,
+      redirect_uri: "http://127.0.0.1:8888/callback",
+      response_type: "code",
+      code_challenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+      code_challenge_method: "S256",
+      scope: "read"
+    }
+
+    untenanted do
+      get new_oauth_authorization_path, params: authorization.merge(state: "s" * 2048)
+    end
+
+    assert_response :success
+
+    untenanted do
+      post oauth_authorization_path, params: authorization.merge(state: "s" * 2048)
+    end
+
+    assert_response :redirect
+    assert_equal "s" * 2048, CGI.parse(URI.parse(response.location).query)["state"].first
+
+    untenanted do
+      get new_oauth_authorization_path, params: authorization.merge(state: "s" * 2049)
+    end
+
+    assert_response :redirect
+    params = CGI.parse(URI.parse(response.location).query)
+    assert_equal "invalid_request", params["error"].first
+    assert_not params.key?("code")
+  end
+
+  test "an authorization request too long to keep in the session still asks the person to sign in" do
+    client = oauth_clients(:mcp_client)
+
+    untenanted do
+      get new_oauth_authorization_path, params: {
+        client_id: client.client_id,
+        redirect_uri: "http://127.0.0.1:8888/callback",
+        response_type: "code",
+        code_challenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+        code_challenge_method: "S256",
+        state: "s" * 2048
+      }
+    end
+
+    assert_response :redirect
+    assert_match %r{/session/new}, response.location
+    assert_nil session[:return_to_after_authenticating]
+  end
+
+  test "authorization refuses a state that isn't a single string" do
+    sign_in_as :david
+    client = oauth_clients(:mcp_client)
+
+    untenanted do
+      get new_oauth_authorization_path, params: {
+        client_id: client.client_id,
+        redirect_uri: "http://127.0.0.1:8888/callback",
+        response_type: "code",
+        code_challenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+        code_challenge_method: "S256",
+        scope: "read",
+        state: [ "a", "b" ]
+      }
+    end
+
+    assert_response :redirect
+    assert_equal "invalid_request", CGI.parse(URI.parse(response.location).query)["error"].first
+  end
+
   test "authorization preselects Read + Write when the client requests read write" do
     sign_in_as :david
 
