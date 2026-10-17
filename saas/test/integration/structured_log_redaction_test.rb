@@ -9,6 +9,7 @@ class Fizzy::Saas::StructuredLogRedactionTest < ActionDispatch::IntegrationTest
   CODE = "ZQ7XW3"
   TOKEN = "madeUpAccessToken0000000"
   JOIN_CODE_PART = "Zfake3Join4C"
+  WEBHOOK_URL = "https://hooks.slack.com/services/T0000/B0000/madeUpWebhookPath0000"
 
   test "signing in with a magic link logs no code, from the mail's delivery to its redemption" do
     MagicLink::Code.stubs(:generate).returns(CODE)
@@ -53,6 +54,23 @@ class Fizzy::Saas::StructuredLogRedactionTest < ActionDispatch::IntegrationTest
     assert_equal "Zfak-e3Jo-in4C", Current.account.join_code.reload.code
     assert lines.any? { |line| line.include?("UPDATE `account_join_codes`") }
     assert_no_secret "Zfak-e3Jo-in4C", lines
+  end
+
+  test "creating a webhook logs neither its URL nor its signing secret" do
+    # Production eager loads, and the encrypted attributes that loads add dotted parameter filters, which
+    # change how every filter is matched.
+    Rails.application.eager_load!
+    sign_in_as :kevin
+
+    lines = structured_log_lines do
+      post board_webhooks_path(boards(:writebook)), params: { webhook: { name: "Made up", url: WEBHOOK_URL, subscribed_actions: [ "card_published" ] } }
+    end
+
+    webhook = Webhook.find_by!(url: WEBHOOK_URL)
+    assert_redirected_to board_webhook_path(webhook.board, webhook)
+    assert lines.any? { |line| line.include?("INSERT INTO `webhooks`") }
+    assert_no_secret WEBHOOK_URL, lines
+    assert_no_secret webhook.signing_secret, lines
   end
 
   class DuplicateMagicLinkJob < ApplicationJob

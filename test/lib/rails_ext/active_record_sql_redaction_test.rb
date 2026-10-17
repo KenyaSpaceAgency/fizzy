@@ -11,7 +11,7 @@ class ActiveRecordSqlRedactionTest < ActiveSupport::TestCase
   WEBHOOK_URL = "https://hooks.slack.com/services/T0000/B0000/madeUpWebhookPath0000"
 
   # Columns whose names look like a credential's but whose values aren't one. A secret-bearing column
-  # belongs in ActiveRecordSqlRedaction.tables instead.
+  # belongs in ActiveRecordSqlRedaction::TABLES instead.
   NOT_SECRET = {
     "action_pack_passkeys.credential_id" => "a passkey's public identifier, sent to the browser to sign in",
     "action_pack_passkeys.public_key" => "a public key",
@@ -125,21 +125,58 @@ class ActiveRecordSqlRedactionTest < ActiveSupport::TestCase
       identities(:kevin).magic_links.new(code: CODE, expires_at: 1.minute.from_now).save!(validate: false)
     end
 
-    [ error.message, error.cause.message, error.full_message, error.cause.detailed_message ].each do |message|
-      assert_no_secret CODE, message
+    assert_no_secret_in_error CODE, error
+  end
+
+  test "an invalid statement's error, which can quote the statement, carries no value" do
+    error = assert_raises ActiveRecord::StatementInvalid do
+      MagicLink.connection.select_all("SELECT * FROM magic_links WHERE code = '#{CODE}' INVALID")
     end
-    assert_includes error.message, ActiveRecordSqlRedaction::FILTERED_ERROR if error.cause.respond_to?(:error_code)
+
+    assert_no_secret_in_error CODE, error
+  end
+
+  test "a write refused in read-only mode, whose error quotes the statement, carries no value" do
+    error = assert_raises ActiveRecord::ReadOnlyError do
+      ActiveRecord::Base.while_preventing_writes { MagicLink.where(code: CODE).delete_all }
+    end
+
+    assert_includes error.message, "DELETE FROM"
+    assert_no_secret_in_error CODE, error
+  end
+
+  test "a bulk insert's literals are filtered, including after a value that ends in a backslash" do
+    log, executed = capture do
+      Webhook.insert_all!([ { id: ActiveRecord::Type::Uuid.generate, account_id: accounts("37s").id, board_id: boards(:writebook).id, name: "Ends in \\", url: WEBHOOK_URL, signing_secret: SECRET } ])
+    end
+
+    assert_match(/INSERT INTO [`"]webhooks[`"]/, log)
+    assert_no_secret SECRET, log
+    assert_no_secret WEBHOOK_URL, log
+    assert_sent_to_database SECRET, executed
+    assert_equal SECRET, Webhook.find_by(url: WEBHOOK_URL).signing_secret
+  end
+
+  test "hand-written SQL that names a table bare is filtered too" do
+    log, _ = capture do
+      MagicLink.connection.select_all("SELECT 1 FROM `identities` WHERE EXISTS (SELECT 1 FROM magic_links m WHERE m.identity_id = `identities`.`id` AND m.code = '#{CODE}')")
+    end
+
+    assert_includes log, "magic_links m"
+    assert_no_secret CODE, log
   end
 
   test "redaction covers the statement shapes Active Record writes" do
-    assert_equal "SELECT * FROM `magic_links` WHERE `code` IN ('[FILTERED]', '[FILTERED]')",
+    assert_equal "SELECT * FROM `magic_links` WHERE `code` IN ('[FILTERED]')",
       ActiveRecordSqlRedaction.redact("SELECT * FROM `magic_links` WHERE `code` IN ('a\\'b', 'it''s')")
-    assert_equal "INSERT INTO `magic_links` (`id`, `code`) VALUES (x'[FILTERED]', '[FILTERED]'), (x'[FILTERED]', '[FILTERED]')",
+    assert_equal "INSERT INTO `magic_links` (`id`, `code`) VALUES (x'[FILTERED]')",
       ActiveRecordSqlRedaction.redact("INSERT INTO `magic_links` (`id`, `code`) VALUES (x'01', 'ZQ7XW3'), (x'02', 'ZQ7XW4')")
-    assert_equal "INSERT INTO `identity_access_tokens` (`token`) VALUES ('[FILTERED]') ON DUPLICATE KEY UPDATE `token` = '[FILTERED]'",
+    assert_equal "INSERT INTO `identity_access_tokens` (`token`) VALUES ('[FILTERED]'",
       ActiveRecordSqlRedaction.redact("INSERT INTO `identity_access_tokens` (`token`) VALUES ('a') ON DUPLICATE KEY UPDATE `token` = 'b'")
-    assert_equal %(SELECT "magic_links".* FROM "magic_links" WHERE "magic_links"."code" = '[FILTERED]'),
-      ActiveRecordSqlRedaction.redact(%(SELECT "magic_links".* FROM "magic_links" WHERE "magic_links"."code" = 'ZQ7XW3'))
+    assert_equal %(SELECT "magic_links".* FROM "magic_links" WHERE "magic_links"."code" = '[FILTERED]' LIMIT 1),
+      ActiveRecordSqlRedaction.redact(%(SELECT "magic_links".* FROM "magic_links" WHERE "magic_links"."code" = 'ZQ7XW3' LIMIT 1))
+    assert_equal %(INSERT INTO "webhooks" ("name", "signing_secret") VALUES ('[FILTERED]')),
+      ActiveRecordSqlRedaction.redact(%(INSERT INTO "webhooks" ("name", "signing_secret") VALUES ('ends in \\', 'ZQ7XW3')))
     assert_equal "SELECT 'x' FROM `accounts`", ActiveRecordSqlRedaction.redact("SELECT 'x' FROM `accounts`")
     assert_equal "SELECT 'x' FROM `magic_links_archive`", ActiveRecordSqlRedaction.redact("SELECT 'x' FROM `magic_links_archive`")
     assert_nil ActiveRecordSqlRedaction.redact(nil)
@@ -165,8 +202,8 @@ class ActiveRecordSqlRedactionTest < ActiveSupport::TestCase
 
     assert_includes columns, "magic_links.code", "the scan should see the columns it guards"
 
-    unclassified = columns.reject { |column| column.split(".").first.in?(ActiveRecordSqlRedaction.tables) || NOT_SECRET.key?(column) }
-    assert_empty unclassified, "Add each table to ActiveRecordSqlRedaction.tables, or the column to NOT_SECRET with a reason"
+    unclassified = columns.reject { |column| column.split(".").first.in?(ActiveRecordSqlRedaction::TABLES) || NOT_SECRET.key?(column) }
+    assert_empty unclassified, "Add each table to ActiveRecordSqlRedaction::TABLES, or the column to NOT_SECRET with a reason"
   end
 
   private
@@ -189,6 +226,14 @@ class ActiveRecordSqlRedactionTest < ActiveSupport::TestCase
 
     def assert_no_secret(secret, text)
       assert_not_includes text, secret
+    end
+
+    def assert_no_secret_in_error(secret, error)
+      [ error, error.cause ].compact.each do |exception|
+        [ exception.message, exception.to_s, exception.detailed_message, exception.full_message, exception.inspect ].each do |message|
+          assert_no_secret secret, message
+        end
+      end
     end
 
     # The database still receives the value: in the SQL text on MySQL, as a bind on SQLite.
