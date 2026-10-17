@@ -114,7 +114,7 @@ class OauthFlowTest < ActionDispatch::IntegrationTest
 
     {
       { scope: "admin" } => "invalid_scope",
-      { state: nil } => "invalid_request",
+      { state: "s" * 2049 } => "invalid_request",
       { response_type: "token" } => "unsupported_response_type",
       { code_challenge_method: "plain" } => "invalid_request"
     }.each do |overrides, error|
