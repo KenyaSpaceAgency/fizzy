@@ -9,8 +9,8 @@
         <span class="for-screen-reader">Disconnect this app</span>
       </button>
 
-      <dialog class="dialog panel fill-white shadow gap flex-column" style="--panel-size: 44ch" data-dialog-target="dialog">
-        <h3 class="txt-large txt-bold margin-none">Disconnect <%= client.name %>?</h3>
+      <dialog class="dialog panel fill-white shadow gap flex-column" style="--panel-size: 44ch" data-dialog-target="dialog" aria-labelledby="<%= dom_id(client, :disconnect_title) %>">
+        <h3 class="txt-large txt-bold margin-none" id="<%= dom_id(client, :disconnect_title) %>">Disconnect <%= client.name %>?</h3>
         <p class="txt-medium margin-none">This will revoke all of its access.</p>
 
         <%= form_with url: my_connected_app_path(client), method: :delete, class: "flex flex-column gap" do |form| %>
