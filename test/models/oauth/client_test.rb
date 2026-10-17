@@ -169,4 +169,10 @@ class Oauth::ClientTest < ActiveSupport::TestCase
 
     assert_equal [ token ], client.access_tokens.to_a
   end
+
+  test "redirect URIs are bounded in number and length" do
+    assert_not Oauth::Client.new(name: "Many", redirect_uris: (1..11).map { |port| "http://127.0.0.1:#{port}/cb" }).valid?
+    assert_not Oauth::Client.new(name: "Long", redirect_uris: [ "http://127.0.0.1/#{"a" * 2000}" ]).valid?
+    assert Oauth::Client.new(name: "Ten", redirect_uris: (1..10).map { |port| "http://127.0.0.1:#{port}/cb" }).valid?
+  end
 end

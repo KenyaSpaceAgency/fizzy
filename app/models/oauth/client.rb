@@ -5,7 +5,12 @@ class Oauth::Client < ApplicationRecord
 
   validates :name, presence: true, length: { maximum: 255 }
   validates :client_id, uniqueness: true, allow_nil: true
-  validates :redirect_uris, presence: true
+  # Registration is open and unauthenticated, so what it stores is bounded:
+  # a few callbacks, each no longer than a URL browsers reliably carry.
+  MAXIMUM_REDIRECT_URIS = 10
+  MAXIMUM_REDIRECT_URI_LENGTH = 2000
+
+  validates :redirect_uris, presence: true, length: { maximum: MAXIMUM_REDIRECT_URIS }
   validate :redirect_uris_are_valid
 
   attribute :redirect_uris, default: -> { [] }
@@ -30,7 +35,11 @@ class Oauth::Client < ApplicationRecord
 
   private
     def redirect_uris_are_valid
-      redirect_uris.each { |uri| validate_redirect_uri(uri) }
+      if redirect_uris.all? { |uri| uri.is_a?(String) && uri.length <= MAXIMUM_REDIRECT_URI_LENGTH }
+        redirect_uris.each { |uri| validate_redirect_uri(uri) }
+      else
+        errors.add :redirect_uris, "must each be a URI of at most #{MAXIMUM_REDIRECT_URI_LENGTH} characters"
+      end
     end
 
     def validate_redirect_uri(uri)

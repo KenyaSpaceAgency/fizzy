@@ -28,10 +28,22 @@ class Oauth::ClientsController < Oauth::BaseController
       nil
     end
 
+    # Bounded before any URI is parsed, so an oversized list costs nothing more
+    # than reading the request.
     def validate_redirect_uris
-      unless performed? || params[:redirect_uris].present?
-        oauth_error "invalid_client_metadata", "redirect_uris is required"
+      unless performed?
+        if params[:redirect_uris].blank?
+          oauth_error "invalid_client_metadata", "redirect_uris is required"
+        elsif !bounded_redirect_uris?(params[:redirect_uris])
+          oauth_error "invalid_client_metadata", "redirect_uris may list at most #{Oauth::Client::MAXIMUM_REDIRECT_URIS} URIs of at most #{Oauth::Client::MAXIMUM_REDIRECT_URI_LENGTH} characters each"
+        end
       end
+    end
+
+    # Anything but a list of strings is refused as unregistrable afterwards.
+    def bounded_redirect_uris?(uris)
+      !uris.is_a?(Array) || (uris.size <= Oauth::Client::MAXIMUM_REDIRECT_URIS &&
+        uris.all? { |uri| !uri.is_a?(String) || uri.length <= Oauth::Client::MAXIMUM_REDIRECT_URI_LENGTH })
     end
 
     def validate_loopback_uris

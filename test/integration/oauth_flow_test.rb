@@ -796,6 +796,23 @@ class OauthFlowTest < ActionDispatch::IntegrationTest
     assert_equal %w[ read write ], Oauth::Client.find_by(client_id: response.parsed_body["client_id"]).scopes
   end
 
+  test "DCR refuses more redirect URIs, or longer ones, than a client needs" do
+    many = (1..11).map { |port| "http://127.0.0.1:#{8000 + port}/callback" }
+    long = "http://127.0.0.1:8888/#{"a" * 2000}"
+
+    [ many, [ long ] ].each do |redirect_uris|
+      assert_no_difference "Oauth::Client.count" do
+        untenanted { post oauth_clients_path, params: { client_name: "Big", redirect_uris: redirect_uris }, as: :json }
+      end
+
+      assert_response :bad_request
+      assert_equal "invalid_client_metadata", response.parsed_body["error"]
+    end
+
+    untenanted { post oauth_clients_path, params: { client_name: "Ten", redirect_uris: many.first(10) }, as: :json }
+    assert_response :created
+  end
+
   test "DCR rejects non-loopback redirect" do
     assert_no_difference "Oauth::Client.count" do
       untenanted do
