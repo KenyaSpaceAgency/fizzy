@@ -137,11 +137,20 @@ class ActiveRecordSqlRedactionTest < ActiveSupport::TestCase
   end
 
   test "a write refused in read-only mode, whose error quotes the statement, carries no value" do
+    # Hand-written, so the value is inlined on SQLite too rather than bound.
     error = assert_raises ActiveRecord::ReadOnlyError do
-      ActiveRecord::Base.while_preventing_writes { MagicLink.where(code: CODE).delete_all }
+      ActiveRecord::Base.while_preventing_writes { MagicLink.connection.execute("DELETE FROM magic_links WHERE code = '#{CODE}'") }
     end
 
     assert_includes error.message, "DELETE FROM"
+    assert_no_secret_in_error CODE, error
+  end
+
+  test "an error quoting a statement whose last literal never closed carries no value" do
+    error = assert_raises ActiveRecord::StatementInvalid do
+      MagicLink.connection.select_all("SELECT * FROM MAGIC_LINKS WHERE code = '#{CODE}")
+    end
+
     assert_no_secret_in_error CODE, error
   end
 
