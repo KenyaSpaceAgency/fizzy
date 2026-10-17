@@ -92,7 +92,7 @@ class ApiTest < ActionDispatch::IntegrationTest
   test "a read-only grant changing data is forbidden, so the app asks for write" do
     token = identities(:jason).access_tokens.create!(oauth_client: oauth_clients(:mcp_client), permission: :read)
 
-    post boards_path(format: :json), params: { board: { name: "My new board" } }, env: bearer_token_env(token.token)
+    post boards_path(format: :json), params: { board: { name: "My new board" } }, env: bearer_token_env(token.raw_token)
 
     assert_response :forbidden
     assert_bearer_challenge error: "insufficient_scope"
