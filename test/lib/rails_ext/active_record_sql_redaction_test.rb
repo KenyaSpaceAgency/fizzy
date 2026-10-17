@@ -146,24 +146,30 @@ class ActiveRecordSqlRedactionTest < ActiveSupport::TestCase
     assert_no_secret_in_error CODE, error
   end
 
-  test "an error quoting a statement whose last literal never closed carries no value" do
-    error = assert_raises ActiveRecord::StatementInvalid do
-      MagicLink.connection.select_all("SELECT * FROM MAGIC_LINKS WHERE code = '#{CODE}")
+  test "a statement whose last literal never closed carries no value into its log line or its error" do
+    log, _ = capture do
+      error = assert_raises ActiveRecord::StatementInvalid do
+        MagicLink.connection.select_all("SELECT * FROM MAGIC_LINKS WHERE purpose = '0' AND code = '#{CODE}")
+      end
+
+      assert_no_secret_in_error CODE, error
     end
 
-    assert_no_secret_in_error CODE, error
+    assert_includes log, "MAGIC_LINKS"
+    assert_no_secret CODE, log
   end
 
+  # Bulk inserts inline their values on SQLite too, and the columns go in order, so the description's
+  # trailing backslash sits right before the token.
   test "a bulk insert's literals are filtered, including after a value that ends in a backslash" do
     log, executed = capture do
-      Webhook.insert_all!([ { id: ActiveRecord::Type::Uuid.generate, account_id: accounts("37s").id, board_id: boards(:writebook).id, name: "Ends in \\", url: WEBHOOK_URL, signing_secret: SECRET } ])
+      Identity::AccessToken.insert_all!([ { id: ActiveRecord::Type::Uuid.generate, identity_id: identities(:kevin).id, description: "Ends in \\", permission: "read", token: TOKEN } ])
     end
 
-    assert_match(/INSERT INTO [`"]webhooks[`"]/, log)
-    assert_no_secret SECRET, log
-    assert_no_secret WEBHOOK_URL, log
-    assert_sent_to_database SECRET, executed
-    assert_equal SECRET, Webhook.find_by(url: WEBHOOK_URL).signing_secret
+    assert_match(/INSERT INTO [`"]identity_access_tokens[`"]/, log)
+    assert_no_secret TOKEN, log
+    assert_sent_to_database TOKEN, executed
+    assert_equal "Ends in \\", Identity::AccessToken.find_by(token: TOKEN).description
   end
 
   test "hand-written SQL that names a table bare is filtered too" do
@@ -176,16 +182,18 @@ class ActiveRecordSqlRedactionTest < ActiveSupport::TestCase
   end
 
   test "redaction covers the statement shapes Active Record writes" do
-    assert_equal "SELECT * FROM `magic_links` WHERE `code` IN ('[FILTERED]')",
+    assert_equal "SELECT * FROM `magic_links` WHERE `code` IN ('[FILTERED]'",
       ActiveRecordSqlRedaction.redact("SELECT * FROM `magic_links` WHERE `code` IN ('a\\'b', 'it''s')")
-    assert_equal "INSERT INTO `magic_links` (`id`, `code`) VALUES (x'[FILTERED]')",
+    assert_equal "INSERT INTO `magic_links` (`id`, `code`) VALUES (x'[FILTERED]'",
       ActiveRecordSqlRedaction.redact("INSERT INTO `magic_links` (`id`, `code`) VALUES (x'01', 'ZQ7XW3'), (x'02', 'ZQ7XW4')")
     assert_equal "INSERT INTO `identity_access_tokens` (`token`) VALUES ('[FILTERED]'",
       ActiveRecordSqlRedaction.redact("INSERT INTO `identity_access_tokens` (`token`) VALUES ('a') ON DUPLICATE KEY UPDATE `token` = 'b'")
-    assert_equal %(SELECT "magic_links".* FROM "magic_links" WHERE "magic_links"."code" = '[FILTERED]' LIMIT 1),
+    assert_equal %(SELECT "magic_links".* FROM "magic_links" WHERE "magic_links"."code" = '[FILTERED]'),
       ActiveRecordSqlRedaction.redact(%(SELECT "magic_links".* FROM "magic_links" WHERE "magic_links"."code" = 'ZQ7XW3' LIMIT 1))
-    assert_equal %(INSERT INTO "webhooks" ("name", "signing_secret") VALUES ('[FILTERED]')),
-      ActiveRecordSqlRedaction.redact(%(INSERT INTO "webhooks" ("name", "signing_secret") VALUES ('ends in \\', 'ZQ7XW3')))
+    assert_equal %{INSERT INTO "webhooks" ("name", "url") VALUES ('[FILTERED]'},
+      ActiveRecordSqlRedaction.redact(%{INSERT INTO "webhooks" ("name", "url") VALUES ('ends in \\', 'ZQ7XW3')})
+    assert_equal "SELECT * FROM `magic_links` WHERE `code` = '[FILTERED]'",
+      ActiveRecordSqlRedaction.redact("SELECT * FROM `magic_links` WHERE `code` = 'a' OR `code` = 'ZQ7XW3")
     assert_equal "SELECT 'x' FROM `accounts`", ActiveRecordSqlRedaction.redact("SELECT 'x' FROM `accounts`")
     assert_equal "SELECT 'x' FROM `magic_links_archive`", ActiveRecordSqlRedaction.redact("SELECT 'x' FROM `magic_links_archive`")
     assert_nil ActiveRecordSqlRedaction.redact(nil)

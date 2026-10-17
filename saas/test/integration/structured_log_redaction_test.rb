@@ -100,6 +100,9 @@ class Fizzy::Saas::StructuredLogRedactionTest < ActionDispatch::IntegrationTest
     breadcrumb = Sentry::Breadcrumb.new(category: "sql.active_record", data: { sql: sql })
     assert_no_secret CODE, [ config.before_breadcrumb.call(breadcrumb, {}).data[:sql] ]
 
+    unclosed = Sentry::Breadcrumb.new(category: "sql.active_record", data: { sql: "SELECT * FROM magic_links WHERE purpose = '0' AND code = '#{CODE}" })
+    assert_no_secret CODE, [ config.before_breadcrumb.call(unclosed, {}).data[:sql] ]
+
     error = ActiveRecord::RecordNotUnique.new("Trilogy::ProtocolError: 1062: Duplicate entry '#{CODE}' for key 'magic_links.index_magic_links_on_code'")
     event = Sentry::ErrorEvent.new(configuration: config).tap { |event| event.add_exception_interface(error, mechanism: Sentry::Mechanism.new) }
     assert_no_secret CODE, [ config.before_send.call(event, {}).exception.values.map(&:value).inspect ]

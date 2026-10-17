@@ -26,14 +26,12 @@ module ActiveRecordSqlRedaction
   # in hand-written SQL, in any case. Over-matching only filters more.
   TABLE = /\b(?:#{TABLES.map { |table| Regexp.escape(table) }.join("|")})\b/i
 
-  # From the first quote to the last, so every literal goes however the adapter escapes quotes inside one:
-  # MySQL with a backslash, SQLite by doubling, and a SQLite value ending in a backslash can't make the
-  # match end early. What's left outside the quotes is the statement's shape.
-  LITERALS = /'.*'/m
-
-  # An error can quote a statement that never closed its last literal, so its message loses everything
-  # from the first quote on.
-  QUOTED_TAIL = /'.*/m
+  # Everything from the first quote on, so every literal goes however the adapter escapes quotes inside
+  # one (MySQL with a backslash, SQLite by doubling, where a value ending in a backslash would make a
+  # literal-by-literal match end early), and a malformed statement whose last literal never closed loses
+  # it too. What's left before the first quote is the statement's shape: its table, columns and the
+  # condition the first value is compared in.
+  LITERALS = /'.*/m
 
   FILTERED = "[FILTERED]"
   FILTERED_LITERAL = "'#{FILTERED}'"
@@ -66,7 +64,7 @@ module ActiveRecordSqlRedaction
 
     # A MySQL server error on such a statement can quote the row's values (a duplicate-entry error quotes
     # the entry), and nothing about its wording is safe to parse, so the whole message is replaced by its
-    # code. Any other error loses everything from its first quote on: SQLite's syntax errors and Active
+    # code. Any other error is redacted like a statement: SQLite's syntax errors and Active
     # Record's read-only error quote the whole statement, while the wording the adapters classify errors by
     # (a UNIQUE constraint, a lost connection) quotes nothing and survives. Every sink that reads the error
     # afterwards, the translated Active Record error and its cause alike, sees the filtered message.
@@ -85,7 +83,7 @@ module ActiveRecordSqlRedaction
     end
 
     def redact_error_message(message)
-      message.is_a?(String) ? message.sub(QUOTED_TAIL, FILTERED_LITERAL) : message
+      message.is_a?(String) ? message.sub(LITERALS, FILTERED_LITERAL) : message
     end
 
     private
