@@ -20,9 +20,9 @@ class Identity::AccessTokenTest < ActiveSupport::TestCase
     personal = identities(:david).access_tokens.create!(description: "Personal")
     grant = identities(:david).access_tokens.create!(oauth_client: oauth_clients(:mcp_client))
 
-    assert_match(/\Afizzy_pat_[1-9A-HJ-NP-Za-km-z]{24}\z/, personal.token)
-    assert_match(/\Afizzy_at_[1-9A-HJ-NP-Za-km-z]{24}\z/, grant.token)
-    assert_match(/\Afizzy_rt_[1-9A-HJ-NP-Za-km-z]{24}\z/, grant.refresh_token)
+    assert_match(/\Afizzy_pat_[1-9A-HJ-NP-Za-km-z]{44}\z/, personal.token)
+    assert_match(/\Afizzy_at_[1-9A-HJ-NP-Za-km-z]{44}\z/, grant.token)
+    assert_match(/\Afizzy_rt_[1-9A-HJ-NP-Za-km-z]{44}\z/, grant.refresh_token)
   end
 
   test "a rotation issues prefixed tokens, even for a grant issued before prefixes" do

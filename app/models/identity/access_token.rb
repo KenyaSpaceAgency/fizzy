@@ -31,13 +31,20 @@ class Identity::AccessToken < ApplicationRecord
 
   # A prefix makes a token recognizable on sight, in logs, pastes and
   # repositories, and names its kind. Tokens issued before prefixes carry none
-  # and keep working: every lookup matches the whole string.
-  PREFIXES = { personal: "fizzy_pat_", access: "fizzy_at_", refresh: "fizzy_rt_" }
+  # and keep working: every lookup matches the whole string. OAuth client
+  # secrets are drawn here too (Oauth::Client), so every credential Fizzy
+  # issues has one shape.
+  PREFIXES = { personal: "fizzy_pat_", access: "fizzy_at_", refresh: "fizzy_rt_", client_secret: "fizzy_cs_" }
 
   # The base58 alphabet has_secure_token uses: no 0, O, I or l. Drawn through
   # Ruby's own SecureRandom, so it doesn't depend on ActiveSupport's base58
   # extension, which only has_secure_token loads.
   BASE58 = [ *"1".."9", *"A".."H", *"J".."N", *"P".."Z", *"a".."k", *"m".."z" ]
+
+  # 44 base58 characters carry 257 bits, at least the 256 bits of randomness
+  # bc3's tokens have (32 bytes). Tokens issued earlier are shorter and keep
+  # working.
+  BODY_LENGTH = 44
 
   enum :permission, %w[ read write ].index_by(&:itself), default: :read
 
@@ -61,7 +68,7 @@ class Identity::AccessToken < ApplicationRecord
     end
 
     def generate_token(kind)
-      PREFIXES.fetch(kind) + SecureRandom.alphanumeric(24, chars: BASE58)
+      PREFIXES.fetch(kind) + SecureRandom.alphanumeric(BODY_LENGTH, chars: BASE58)
     end
 
     # Each grant is rechecked under its lock, so one renewed after it was

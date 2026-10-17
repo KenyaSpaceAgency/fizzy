@@ -88,7 +88,7 @@ Status key:
 
 | Requirement | Status |
 |---|---|
-| Newly issued tokens carry a distinctive prefix naming their kind: `fizzy_pat_` (personal access token), `fizzy_at_` (OAuth access token), `fizzy_rt_` (OAuth refresh token). Tokens issued earlier have no prefix and still work | **Fixed** #3163. bc3 prefixes similarly (`bc_at_`, `bc_rt_`, and PATs as `bc_at_`). Client secrets are not prefixed yet; bc3 uses `bc_cs_` for the ones its rake task issues. Nobody has registered with GitHub's secret-scanning partner program, either here or in bc3. |
+| Newly issued tokens carry a distinctive prefix naming their kind: `fizzy_pat_` (personal access token), `fizzy_at_` (OAuth access token), `fizzy_rt_` (OAuth refresh token). Tokens issued earlier have no prefix and still work | **Fixed** #3163. bc3 prefixes similarly (`bc_at_`, `bc_rt_`, and PATs as `bc_at_`). Client secrets carry `fizzy_cs_`, as bc3's carry `bc_cs_`. New tokens and secrets carry 44 base58 characters after the prefix, 257 bits, at least bc3's 32 bytes (rubric TK-1); earlier ones are 24 characters and keep working. Nobody has registered with GitHub's secret-scanning partner program, either here or in bc3. |
 
 ## Refresh tokens (RFC 6749 §6, OAuth 2.1 §4.3, RFC 9700 §4.14)
 
