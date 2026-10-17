@@ -89,7 +89,8 @@ Status key:
 | Requirement | Status |
 |---|---|
 | Rotation on every refresh, atomic (compare-and-swap). A concurrent loser is a retry of the winning rotation: within the 60-second grace it gets the winner's pair, as a retry would (#3160); past it, it's a replay | **Conformant** (#3081, #3160) |
-| Refresh may narrow scope, never widen it; blank or `null` scope is refused | **Conformant** (#3081 `4076dd17a`, `81dbfc5d3`, `c2d67e88d`) |
+| Refresh may narrow scope, never widen it; blank or `null` scope is refused | **Conformant** (#3081). |
+| A refresh token issued after narrowing keeps its predecessor's scope (RFC 6749 §6) | **Deliberate**: a grant is one row, so narrowing on refresh narrows the grant for good, and a later refresh can't ask for the wider scope again. Strictly more restrictive than the rubric (RT-5 forbids only widening); signing in to the app again restores a broader scope. No shipped client narrows on refresh. |
 | `client_id` required and must match the grant | **Conformant** (#3081 `f9a1885ff`) |
 | Public clients' refresh tokens MUST be sender-constrained, or rotated **with replay detection**: presenting a rotated-out token revokes the live one (OAuth 2.1 §4.3.1, RFC 9700 §4.14.2) | **Fixed** #3160 `cf4aa3192` "Revoke the grant when a rotated refresh token is replayed, with a retry grace". A replay revokes the grant. A retry within 60s, while the successor is still current, gets that successor, as in bc3. |
 | Refresh tokens SHOULD expire after client inactivity (RFC 9700 §4.14.2) | **Fixed** #3161 `f97c959e0` "Lapse OAuth grants left idle for 90 days", `d6bfcc2b1`. This matches bc3's 90-day `refresh_token_ttl`. A grant that lapses restarts its client's 30-day sweep clock (#3159). |
@@ -144,8 +145,8 @@ Status key:
 |---|---|
 | Challenges use the `Bearer` scheme (§3). Rails' default was `Token realm=` | **Fixed** #3158 `cc7d07659` "Answer API authentication failures with a Bearer challenge" |
 | A presented but invalid or expired token gets 401 `error="invalid_token"` (§3.1); clients refresh on this hourly since #3081 | **Fixed** #3158 `cc7d07659` |
-| A valid read token on a write gets 403 `error="insufficient_scope", scope="write"`, so clients stop refreshing in a loop | **Fixed** #3158 `cc7d07659` |
-| A JSON request with no credentials gets 401 plus a challenge instead of a 302 to sign-in (§3) | **Fixed** #3158, except for requests carrying a session cookie or `X-Requested-With`, which keep the 302 so in-app autosave and uploads don't break. **Open decision**: D6. |
+| A valid read token on a write gets 403 `error="insufficient_scope", scope="write"`, so clients stop refreshing in a loop | **Fixed** #3158 for OAuth grants. A read-only personal access token keeps the 401 shipped clients have always had, with the same `insufficient_scope` challenge (**Deliberate**, pinned by #3191). |
+| A JSON request with no credentials gets 401 plus a challenge instead of a 302 to sign-in (§3) | **Deliberate** (D6): it keeps the 302. Nothing in a request without credentials tells the native apps or fizzy-cli, which rely on the redirect (pinned by #3191), from an OAuth client. Hosted OAuth clients discover Fizzy's authorization server through fizzy-mcp-server's own 401 + `resource_metadata` and Fizzy's `/.well-known` metadata, not a credential-less call to Fizzy's API, so it costs them little. **Exit:** once the oldest supported native app and fizzy-cli handle a 401 challenge on an unauthenticated JSON request. |
 | The scheme is matched case-insensitively (RFC 9110 §11.1) | **Fixed** #3158 `cc7d07659` |
 | `resource_metadata` in the challenge (RFC 9728 §5.1), omitted while dark | **Fixed** #3158 `cc7d07659` |
 | A Bearer header on an HTML request: 401, not the SHOULD-level 400 for `invalid_request` | **Deliberate** (#3158 summary); preserves the existing refusal. |
@@ -178,11 +179,10 @@ holds them, and a client secret that authenticates no client gets 400
    lead with the redirect host rather than the self-asserted `client_name`, and
    refuse impersonating names (Fizzy, Basecamp, HEY, Claude, ChatGPT) for
    self-registered clients.
-6. **D6: rule for the no-credentials 401 (#3158).** A JSON request with no
-   session cookie and no `X-Requested-With` gets 401 + Bearer; anything else
-   keeps the 302, so in-app autosave isn't sent to the challenge URL by
-   `@rails/request.js`. An API client that sends `X-Requested-With` without
-   credentials still gets a 302. Accept this rule, or narrow it?
+6. **D6 (#3158), decided: shipped clients keep their answers.** A JSON
+   request with no credentials keeps the 302 (DS-3 deviation, row above), and
+   a read-only personal access token writing keeps its 401; only an OAuth
+   grant gets the 403.
 
 The train is rebased onto main, which carries rubyzip 3.7.0, so the Security
 audit no longer flags rubyzip 3.3.0 (CVE-2026-85396).
