@@ -443,10 +443,6 @@ class Oauth::ClientTest < ActiveSupport::TestCase
     assert_not Identity::AccessToken.exists?(grant.id)
   end
 
-  private
-    def register_client(**attributes)
-      Oauth::Client.create! name: "Abandoned", redirect_uris: %w[ http://127.0.0.1:8888/callback ], dynamically_registered: true, **attributes
-    end
 
   test "destroying a client with unsaved changes still destroys it and its grants" do
     client = Oauth::Client.create!(name: "Dirty", redirect_uris: %w[ http://127.0.0.1:8888/callback ])
@@ -458,4 +454,9 @@ class Oauth::ClientTest < ActiveSupport::TestCase
     end
     assert_not Oauth::Client.exists?(client.id)
   end
+
+  private
+    def register_client(**attributes)
+      Oauth::Client.create! name: "Abandoned", redirect_uris: %w[ http://127.0.0.1:8888/callback ], dynamically_registered: true, **attributes
+    end
 end
