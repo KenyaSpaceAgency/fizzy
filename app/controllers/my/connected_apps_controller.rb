@@ -1,4 +1,8 @@
 class My::ConnectedAppsController < ApplicationController
+  # Grants belong to the identity, not to an account, so revoking them must not
+  # depend on still having one: an identity whose only membership has ended
+  # keeps its grants, and could regain their reach by joining again.
+  skip_before_action :require_account
   disallow_oauth_grants
 
   before_action :set_connected_apps, only: :index

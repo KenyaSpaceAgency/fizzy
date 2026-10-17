@@ -15,6 +15,23 @@ class My::ConnectedAppsControllerTest < ActionDispatch::IntegrationTest
     assert_match client.name, response.body
   end
 
+  test "index and destroy work untenanted, so an identity without an account can still disconnect apps" do
+    client = oauth_clients(:mcp_client)
+    @identity.access_tokens.create!(oauth_client: client, permission: :read)
+
+    untenanted do
+      get my_connected_apps_path
+
+      assert_response :success
+      assert_match client.name, response.body
+      assert_in_body session_menu_path
+
+      assert_difference -> { @identity.access_tokens.oauth.count }, -1 do
+        delete my_connected_app_path(client)
+      end
+    end
+  end
+
   test "index excludes PATs" do
     # PAT has no oauth_client
     @identity.access_tokens.create!(permission: :read, description: "My PAT")
