@@ -94,10 +94,12 @@ class Oauth::Client < ApplicationRecord
   end
 
   private
-    # lock! reloads, which also drops any grants already loaded, so the cascade
-    # sees every grant committed before the lock.
+    # Takes the row lock without reloading, since lock! refuses a record with
+    # unsaved changes and destroy otherwise ignores them. Resetting the grants
+    # makes the cascade see every grant committed before the lock.
     def lock_client
-      lock!
+      self.class.lock.where(id: id).pluck(:id)
+      access_tokens.reset
     end
 
     def generate_client_secret
