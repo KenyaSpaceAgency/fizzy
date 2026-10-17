@@ -32,8 +32,12 @@ class Webhook < ApplicationRecord
   # them. A webhook is an account resource whoever creates it, so one an app
   # creates outlives the app's grant: it stays, attributed, and the person may
   # remove it when they disconnect the app (My::ConnectedAppsController).
-  belongs_to :creator, class_name: "User", optional: true, default: -> { Current.user }
-  belongs_to :created_via, class_name: "Oauth::Client", optional: true, default: -> { Current.access_token&.oauth_client }
+  #
+  # Set once, on creation: an app editing a webhook someone set up in the
+  # browser doesn't become its author.
+  belongs_to :creator, class_name: "User", optional: true
+  belongs_to :created_via, class_name: "Oauth::Client", optional: true
+  before_validation :attribute_creation, on: :create
 
   serialize :subscribed_actions, type: Array, coder: JSON
 
@@ -41,9 +45,11 @@ class Webhook < ApplicationRecord
   scope :active, -> { where(active: true) }
 
   # Webhooks an app set up for this identity, in any active account where the
-  # person can still manage webhooks.
+  # person can still manage webhooks, on boards they can still reach: an admin
+  # taken off a private board no longer sees its webhooks, as on the board.
   scope :set_up_through, ->(client, identity:) do
-    where(created_via: client, creator: identity.users.admin.joins(:account).merge(Account.active))
+    where(created_via: client, creator: identity.users.admin.joins(:account).merge(Account.active)) \
+      .where(Access.where("accesses.board_id = webhooks.board_id AND accesses.user_id = webhooks.creator_id").arel.exists)
   end
 
   after_create :create_delinquency_tracker!
@@ -79,6 +85,11 @@ class Webhook < ApplicationRecord
   end
 
   private
+    def attribute_creation
+      self.creator ||= Current.user
+      self.created_via ||= Current.access_token&.oauth_client
+    end
+
     def validate_url
       uri = URI.parse(url.presence)
 
