@@ -43,8 +43,10 @@ class Identity::AccessTokenTest < ActiveSupport::TestCase
     stale = Identity::AccessToken.find(token.id)
 
     assert token.refresh
+    winner = token.token
+
     assert_not stale.refresh
-    assert_equal token.reload.token, token.token
+    assert_equal winner, token.reload.token
   end
 
   test "active scope excludes expired tokens" do
