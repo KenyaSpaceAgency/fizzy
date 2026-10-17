@@ -95,7 +95,7 @@ class OauthRefreshReplayTest < ActionDispatch::IntegrationTest
   end
 
   test "a superseded retry within the grace window is refused as superseded, whatever scope it asks for" do
-    ancestor = @grant.refresh_token
+    ancestor = @grant.raw_refresh_token
     refresh ancestor
     travel 1.second
     refresh response.parsed_body["refresh_token"]
