@@ -97,8 +97,7 @@ class Fizzy::Saas::StructuredLogRedactionTest < ActionDispatch::IntegrationTest
       transaction = Sentry.start_transaction(op: "test", name: "redaction")
       Sentry.get_current_scope.set_span(transaction)
       identities(:kevin).magic_links.create!(code: CODE)
-      # On this Rails, statements are instrumented through a handle that bypasses the timestamp Sentry's
-      # span recorder needs; query-cache hits go through instrument, so the repeat lookup records a span.
+      # The repeat lookup is a query-cache hit, which is what becomes a DB span (see with_sentry).
       ActiveRecord::Base.cache { 2.times { assert MagicLink.find_by(code: CODE) } }
       transaction.finish
 
@@ -160,10 +159,13 @@ class Fizzy::Saas::StructuredLogRedactionTest < ActionDispatch::IntegrationTest
   private
     # Sentry as the engine starts it, delivering to a dummy transport, with tracing on so DB spans are
     # recorded. Everything it subscribes is removed afterwards by object; Sentry's own teardown unsubscribes
-    # tracing by event name, which would take the redaction subscriber with it.
+    # tracing by event name, which would take the redaction subscriber with it. On this Rails, executed
+    # statements are instrumented through a handle that skips the timestamp Sentry's span recorder needs,
+    # so only query-cache hits become DB spans.
     def with_sentry(filters:)
       notifier = ActiveSupport::Notifications.notifier
-      before = notifier.listeners_for("sql.active_record")
+      traced = Sentry::Rails::Configuration.new.tracing_subscribers.flat_map { |subscriber| subscriber::EVENT_NAMES }
+      before = traced.index_with { |name| notifier.listeners_for(name) }
 
       Sentry.init do |config|
         config.dsn = "http://public@sentry.example.invalid/1"
@@ -179,7 +181,7 @@ class Fizzy::Saas::StructuredLogRedactionTest < ActionDispatch::IntegrationTest
       assert_same ActiveRecordSqlRedaction::SUBSCRIBER, notifier.listeners_for("sql.active_record").first, "the redaction should still run first"
       yield
     ensure
-      (notifier.listeners_for("sql.active_record") - before).each { |subscriber| ActiveSupport::Notifications.unsubscribe(subscriber) }
+      before&.each { |name, listeners| (notifier.listeners_for(name) - listeners).each { |subscriber| ActiveSupport::Notifications.unsubscribe(subscriber) } }
       Sentry::Rails::Breadcrumb::ActiveSupportLogger.detach if defined?(Sentry::Rails::Breadcrumb::ActiveSupportLogger)
       Sentry::Rails::Tracing.instance_variable_set(:@subscribed, false)
       Sentry::Rails::Tracing.subscribed_tracing_events.clear

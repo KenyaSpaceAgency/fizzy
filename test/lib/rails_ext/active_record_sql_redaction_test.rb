@@ -152,6 +152,15 @@ class ActiveRecordSqlRedactionTest < ActiveSupport::TestCase
     later&.each { |subscriber| ActiveSupport::Notifications.unsubscribe(subscriber) }
   end
 
+  # Relation#explain re-runs the statements it collects from this payload, so they keep their SQL.
+  test "explaining a query on a redacted table still works, and the same query outside it is redacted" do
+    assert_match(/EXPLAIN/i, MagicLink.where("code IN ('#{CODE}')").explain.inspect)
+
+    log, _ = capture { MagicLink.where("code IN ('#{CODE}')").to_a }
+    assert_includes log, "magic_links"
+    assert_no_secret CODE, log
+  end
+
   test "a duplicate entry's error carries no value" do
     identities(:kevin).magic_links.create!(code: CODE)
 

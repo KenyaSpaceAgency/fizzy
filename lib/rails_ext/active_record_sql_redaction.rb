@@ -104,10 +104,15 @@ end
 # diagnostic fields after the statement has run, never the SQL string or binds the adapter executed, and
 # clears both bind fields so no later consumer can recover a bound value. A failed statement's payload
 # carries its error's message, which ErrorTranslation below has already filtered.
+#
+# Two boundaries. While Relation#explain collects queries it re-runs each one from this payload, so a
+# statement run inside explain keeps its SQL, in its log line too; nothing in the app calls explain, and
+# whoever does sees the values in its output anyway. And an evented subscriber's start callback runs before any
+# finish, so it sees the raw payload; nothing installed reads SQL at start.
 ActiveRecordSqlRedaction::SUBSCRIBER = ActiveSupport::Notifications.subscribe("sql.active_record", prepend: true) do |event|
   payload = event.payload
 
-  if ActiveRecordSqlRedaction.redacted_statement?(payload[:sql])
+  if ActiveRecordSqlRedaction.redacted_statement?(payload[:sql]) && !ActiveRecord::ExplainRegistry.collect?
     payload[:sql] = ActiveRecordSqlRedaction.redact(payload[:sql])
     payload[:binds] = []
     payload[:type_casted_binds] = []
