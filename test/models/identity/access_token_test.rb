@@ -238,6 +238,12 @@ class Identity::AccessTokenTest < ActiveSupport::TestCase
     assert_nil Identity::AccessToken.where(identity: identities(:kevin)).find_by_raw_token("legacyPersonalToken0123456789")
   end
 
+  # Dropped beside `token` only once every process runs code that ignores it.
+  test "the plaintext refresh token column is ignored" do
+    assert_not_includes Identity::AccessToken.column_names, "refresh_token"
+    assert_not Identity::AccessToken.new.respond_to?(:refresh_token)
+  end
+
   test "two tokens can't share a digest" do
     token = identities(:david).access_tokens.create!(description: "Personal")
 

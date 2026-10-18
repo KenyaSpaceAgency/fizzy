@@ -53,6 +53,13 @@ class Identity::AccessToken < ApplicationRecord
   # holder once. Personal access tokens also keep their plaintext in `token`
   # for now, because production code that reads only `token` shares this
   # database until this code is deployed there. OAuth access tokens never do.
+  #
+  # The plaintext `refresh_token` column is ignored until it's dropped, beside
+  # `token`. Without partial_inserts, a model that knows a column names it on
+  # every INSERT, so only code that ignores it can keep creating tokens once
+  # it's gone.
+  self.ignored_columns += %w[ refresh_token ]
+
   attribute :raw_token, :string
   attribute :raw_refresh_token, :string
 

@@ -8,7 +8,9 @@
 # Personal access tokens keep their plaintext: production still reads it until
 # this code reaches it. OAuth access tokens are digest-only, so any plaintext
 # one is cleared once digested. Refresh tokens and client secrets are moved
-# wholesale; their plaintext columns are dropped by the next migration.
+# wholesale: a refresh token's plaintext is cleared once digested, and the
+# client secret column is dropped by the next migration. The refresh token
+# column stays, empty, until it's dropped beside `token`.
 #
 # Rerunnable: it only touches rows without a digest, and skips columns already
 # dropped. Its down is a no-op, so `db:migrate:redo:primary VERSION=20261015120100`
@@ -35,10 +37,10 @@ class BackfillTokenDigests < ActiveRecord::Migration[8.2]
         token_digest: digest, token: (row.oauth_client_id ? nil : row.token)
     end
 
-    # Gone once DropPlaintextOauthCredentials has run, so a rerun skips them.
+    # Each is gone once dropped, so a rerun skips it.
     if column_exists?(:identity_access_tokens, :refresh_token)
       each_undigested AccessToken, :refresh_token, :refresh_token_digest do |row, digest|
-        AccessToken.where(id: row.id, refresh_token_digest: nil).update_all refresh_token_digest: digest
+        AccessToken.where(id: row.id, refresh_token_digest: nil).update_all refresh_token_digest: digest, refresh_token: nil
       end
     end
 

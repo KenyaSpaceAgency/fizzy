@@ -1,15 +1,19 @@
-# Refresh tokens and client secrets have been digested (BackfillTokenDigests)
-# and are never read in plaintext again. Nothing in production holds them:
-# the OAuth tables and columns have never served production traffic.
+# Client secrets have been digested (BackfillTokenDigests) and are never read
+# in plaintext again. Nothing in production holds them: the OAuth tables have
+# never served production traffic.
 #
 # Retired refresh tokens are only kept to recognize a replay, so the table is
 # rebuilt keyed by digest rather than converted. A replay of a token rotated
 # before this migration is then answered as an unknown token, not revoked.
+#
+# Only tables that code from before this stack never models are touched here.
+# Without partial_inserts, a process names every column it has cached on each
+# INSERT, so dropping a column of a table that running code writes would fail
+# that code's inserts until it restarts. identity_access_tokens.refresh_token
+# is such a column: Identity::AccessToken ignores it, and it is dropped beside
+# `token` once every process runs code that ignores both.
 class DropPlaintextOauthCredentials < ActiveRecord::Migration[8.2]
   def change
-    remove_index :identity_access_tokens, :refresh_token, unique: true
-    remove_column :identity_access_tokens, :refresh_token, :string
-
     remove_column :oauth_clients, :client_secret, :string
 
     drop_table :oauth_retired_refresh_tokens, id: :uuid do |t|

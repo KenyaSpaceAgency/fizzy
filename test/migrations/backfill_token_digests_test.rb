@@ -45,6 +45,16 @@ class BackfillTokenDigestsTest < ActiveSupport::TestCase
     assert_equal @grant, Identity::AccessToken.find_by_raw_token("legacyAccessToken0123456789")
   end
 
+  # The plaintext refresh token column outlives this stack, so it's emptied.
+  test "digests a grant's refresh token and clears its plaintext" do
+    BackfillTokenDigests::AccessToken.where(id: @grant.id).update_all refresh_token: "legacyRefreshToken0123456789", refresh_token_digest: nil
+
+    backfill
+
+    assert_equal @grant, Identity::AccessToken.find_by_refresh_token("legacyRefreshToken0123456789")
+    assert_nil BackfillTokenDigests::AccessToken.find(@grant.id).refresh_token
+  end
+
   test "refuses duplicate tokens before digesting anything, without naming them" do
     copy = identities(:kevin).access_tokens.create!(description: "Copy")
     copy.update_columns token: "legacyPersonalToken0123456789", token_digest: nil
