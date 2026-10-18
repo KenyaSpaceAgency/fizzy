@@ -1,7 +1,8 @@
-# Trilogy runs without prepared statements, so a value reaches the SQL text as a quoted literal, and with
-# Rails.event in debug mode (config/application.rb) that text reaches the log: in SaaS mode, the structured
-# log line for the request or job, and from there Loki. Sentry breadcrumbs carry it too, and a database
-# error can quote a value in its message. SQLite runs with prepared statements and logs the value as a bind,
+# Trilogy runs without prepared statements, so a value reaches the SQL text as a quoted literal. The
+# sql.active_record notification carries that text to every consumer, and with Rails.event in debug mode
+# (config/application.rb) it reaches the log: in SaaS mode, the structured log line for the request or
+# job, and from there Loki. Sentry breadcrumbs and spans read it too, and a database error can quote a
+# value in its message. SQLite runs with prepared statements and logs the value as a bind,
 # except in bulk inserts, which inline it.
 #
 # For the tables listed here every literal and every bind is secret enough to drop:
@@ -98,15 +99,18 @@ module ActiveRecordSqlRedaction
   end
 end
 
-module ActiveRecordSqlRedaction::StructuredEvents
-  def emit_debug_event(name, payload = nil, caller_depth: 1, **kwargs)
-    if name == "active_record.sql" && ActiveRecordSqlRedaction.redacted_statement?(kwargs[:sql])
-      kwargs = kwargs.merge \
-        sql: ActiveRecordSqlRedaction.redact(kwargs[:sql]),
-        binds: kwargs[:binds]&.map { |bind_name, _| [ bind_name, ActiveRecordSqlRedaction::FILTERED ] }
-    end
+# Prepended, so it runs before every other sql.active_record consumer: Rails' structured event (and through
+# it the log), Sentry's breadcrumbs and spans, and anything subscribed later. It replaces the payload's
+# diagnostic fields after the statement has run, never the SQL string or binds the adapter executed, and
+# clears both bind fields so no later consumer can recover a bound value. A failed statement's payload
+# carries its error's message, which ErrorTranslation below has already filtered.
+ActiveRecordSqlRedaction::SUBSCRIBER = ActiveSupport::Notifications.subscribe("sql.active_record", prepend: true) do |event|
+  payload = event.payload
 
-    super(name, payload, caller_depth: caller_depth + 1, **kwargs)
+  if ActiveRecordSqlRedaction.redacted_statement?(payload[:sql])
+    payload[:sql] = ActiveRecordSqlRedaction.redact(payload[:sql])
+    payload[:binds] = []
+    payload[:type_casted_binds] = []
   end
 end
 
@@ -130,7 +134,6 @@ module ActiveRecordSqlRedaction::ReadOnlyErrorMessage
 end
 
 ActiveSupport.on_load(:active_record) do
-  ActiveRecord::StructuredEventSubscriber.prepend(ActiveRecordSqlRedaction::StructuredEvents)
   ActiveRecord::ConnectionAdapters::AbstractAdapter.prepend(ActiveRecordSqlRedaction::ErrorTranslation)
   ActiveRecord::ReadOnlyError.prepend(ActiveRecordSqlRedaction::ReadOnlyErrorMessage)
 end

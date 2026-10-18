@@ -92,7 +92,44 @@ class Fizzy::Saas::StructuredLogRedactionTest < ActionDispatch::IntegrationTest
     assert_no_secret CODE, lines
   end
 
-  test "Sentry breadcrumbs, errors and spans carry no value" do
+  test "Sentry's breadcrumbs and DB spans get the redacted SQL from the notification itself" do
+    with_sentry(filters: false) do
+      transaction = Sentry.start_transaction(op: "test", name: "redaction")
+      Sentry.get_current_scope.set_span(transaction)
+      identities(:kevin).magic_links.create!(code: CODE)
+      # On this Rails, statements are instrumented through a handle that bypasses the timestamp Sentry's
+      # span recorder needs; query-cache hits go through instrument, so the repeat lookup records a span.
+      ActiveRecord::Base.cache { 2.times { assert MagicLink.find_by(code: CODE) } }
+      transaction.finish
+
+      breadcrumbs = Sentry.get_current_scope.breadcrumbs.members.select { |crumb| crumb.category == "sql.active_record" && crumb.data[:sql].to_s.include?("magic_links") }
+      spans = sentry_events.flat_map { |event| event.try(:spans) || [] }.select { |span| span[:op].to_s.start_with?("db") && span[:description].to_s.include?("magic_links") }
+
+      assert breadcrumbs.many?, "Sentry should record SQL breadcrumbs"
+      assert spans.any?, "Sentry should record a DB span"
+      assert_no_secret CODE, breadcrumbs.map { |crumb| crumb.data[:sql] } + spans.map { |span| span[:description] }
+    end
+  end
+
+  test "Sentry configured as in production records no value in breadcrumbs, spans or errors" do
+    with_sentry(filters: true) do
+      identities(:kevin).magic_links.create!(code: CODE)
+      transaction = Sentry.start_transaction(op: "test", name: "redaction")
+      Sentry.get_current_scope.set_span(transaction)
+      ActiveRecord::Base.cache { 2.times { assert MagicLink.find_by(code: CODE) } }
+      assert_raises(ActiveRecord::RecordNotUnique) { identities(:kevin).magic_links.new(code: CODE, expires_at: 1.minute.from_now).save!(validate: false) }
+      transaction.finish
+      Sentry.capture_exception(ActiveRecord::RecordNotUnique.new("Trilogy::ProtocolError: 1062: Duplicate entry '#{CODE}' for key 'magic_links.index_magic_links_on_code'"))
+
+      assert sentry_events.many?
+      assert_no_secret CODE, sentry_events.map { |event| event.to_h.to_json }
+      assert_no_secret CODE, Sentry.get_current_scope.breadcrumbs.members.map { |crumb| crumb.data.to_json }
+    end
+  end
+
+  # The callbacks are a backstop for SQL that reaches Sentry outside the notification, so they're tested
+  # directly, on SQL the notification never redacted.
+  test "Sentry's backstop callbacks redact breadcrumbs, errors and spans" do
     config = Sentry::Configuration.new
     Fizzy::Saas::SentrySqlRedaction.install(config)
     sql = "SELECT `magic_links`.* FROM `magic_links` WHERE `magic_links`.`code` = '#{CODE}' LIMIT 1"
@@ -121,6 +158,39 @@ class Fizzy::Saas::StructuredLogRedactionTest < ActionDispatch::IntegrationTest
   end
 
   private
+    # Sentry as the engine starts it, delivering to a dummy transport, with tracing on so DB spans are
+    # recorded. Everything it subscribes is removed afterwards by object; Sentry's own teardown unsubscribes
+    # tracing by event name, which would take the redaction subscriber with it.
+    def with_sentry(filters:)
+      notifier = ActiveSupport::Notifications.notifier
+      before = notifier.listeners_for("sql.active_record")
+
+      Sentry.init do |config|
+        config.dsn = "http://public@sentry.example.invalid/1"
+        config.transport.transport_class = Sentry::DummyTransport
+        config.background_worker_threads = 0
+        config.breadcrumbs_logger = [ :active_support_logger ]
+        config.traces_sample_rate = 1.0
+        Fizzy::Saas::SentrySqlRedaction.install(config) if filters
+      end
+      Sentry::Railtie.instance.send(:inject_breadcrumbs_logger)
+      Sentry::Railtie.instance.send(:activate_tracing)
+
+      assert_same ActiveRecordSqlRedaction::SUBSCRIBER, notifier.listeners_for("sql.active_record").first, "the redaction should still run first"
+      yield
+    ensure
+      (notifier.listeners_for("sql.active_record") - before).each { |subscriber| ActiveSupport::Notifications.unsubscribe(subscriber) }
+      Sentry::Rails::Breadcrumb::ActiveSupportLogger.detach if defined?(Sentry::Rails::Breadcrumb::ActiveSupportLogger)
+      Sentry::Rails::Tracing.instance_variable_set(:@subscribed, false)
+      Sentry::Rails::Tracing.subscribed_tracing_events.clear
+      Sentry::Rails::Tracing.remove_active_support_notifications_patch
+      Sentry.close if Sentry.initialized?
+    end
+
+    def sentry_events
+      Sentry.get_current_client.transport.events
+    end
+
     # The structured logger the subscribers were built with at boot, so this is the line they would write.
     def structured_log_lines
       lines = []

@@ -1,7 +1,11 @@
 module Fizzy
   module Saas
-    # Sentry reads SQL from the sql.active_record notification itself, upstream of the log redaction in
-    # lib/rails_ext/active_record_sql_redaction.rb, so its breadcrumbs and spans are redacted here.
+    # Sentry's breadcrumbs and spans read SQL from the sql.active_record notification, whose payload the
+    # prepended subscriber in lib/rails_ext/active_record_sql_redaction.rb has already redacted. The
+    # breadcrumb and span filters here are a backstop for SQL that reaches Sentry some other way: a
+    # consumer that reads it outside the notification payload, or a Rails or Sentry upgrade that changes
+    # which subscriber runs first. before_send covers exception messages, which the notification never
+    # carries.
     module SentrySqlRedaction
       extend self
 
@@ -29,7 +33,6 @@ module Fizzy
         end
       end
 
-      # Fizzy doesn't sample transactions today; this keeps spans redacted if it starts to.
       def before_send_transaction(event, _hint)
         event.tap do
           event.spans&.each do |span|

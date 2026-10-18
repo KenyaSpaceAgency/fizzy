@@ -28,7 +28,7 @@ class ActiveRecordSqlRedactionTest < ActiveSupport::TestCase
   SECRET_LOOKING_COLUMN = /token|code|secret|passw|digest|key|salt|otp|nonce|credential/
 
   test "a magic link's code is absent from its logged insert, lookup, update and delete" do
-    log, executed = capture do
+    log, executed, seen = capture do
       magic_link = identities(:kevin).magic_links.create!(code: CODE)
       assert_equal magic_link, MagicLink.active.find_by(code: CODE)
       magic_link.update!(code: OTHER_CODE)
@@ -40,6 +40,8 @@ class ActiveRecordSqlRedactionTest < ActiveSupport::TestCase
     assert_match(/DELETE FROM [`"]magic_links[`"]/, log)
     assert_no_secret CODE, log
     assert_no_secret OTHER_CODE, log
+    assert_no_secret CODE, seen.join("\n")
+    assert_no_secret OTHER_CODE, seen.join("\n")
     assert_sent_to_database CODE, executed
     assert_sent_to_database OTHER_CODE, executed
   end
@@ -118,14 +120,50 @@ class ActiveRecordSqlRedactionTest < ActiveSupport::TestCase
     Rails.event.unsubscribe(subscriber)
   end
 
+  test "the redaction runs ahead of every other SQL consumer from boot" do
+    listeners = ActiveSupport::Notifications.notifier.listeners_for("sql.active_record")
+
+    assert_same ActiveRecordSqlRedaction::SUBSCRIBER, listeners.first
+    assert listeners.many?, "Rails' own SQL subscribers should follow it"
+
+    group, subscribers = ActiveSupport::Notifications.notifier.groups_for("sql.active_record").first
+    assert_equal ActiveSupport::Notifications::Fanout::EventObjectGroup, group
+    assert_same ActiveRecordSqlRedaction::SUBSCRIBER.delegate, subscribers.first
+  end
+
+  test "a consumer subscribed later, in any style, sees the redacted payload" do
+    seen = []
+    later = [
+      ActiveSupport::Notifications.subscribe("sql.active_record") { |event| seen << event.payload.dup },
+      ActiveSupport::Notifications.subscribe("sql.active_record") { |_name, _start, _finish, _id, payload| seen << payload.dup },
+      ActiveSupport::Notifications.subscribe(/active_record/) { |_name, _start, _finish, _id, payload| seen << payload.dup }
+    ]
+
+    assert_equal identities(:kevin), Identity.find_by_permissable_access_token(identities(:kevin).access_tokens.create!(token: TOKEN).token, method: "GET")
+
+    redacted = seen.select { |payload| payload[:sql].to_s.include?("identity_access_tokens") }
+    assert redacted.many?
+    redacted.each do |payload|
+      assert_no_secret TOKEN, payload[:sql]
+      assert_empty payload[:binds]
+      assert_empty payload[:type_casted_binds]
+    end
+  ensure
+    later&.each { |subscriber| ActiveSupport::Notifications.unsubscribe(subscriber) }
+  end
+
   test "a duplicate entry's error carries no value" do
     identities(:kevin).magic_links.create!(code: CODE)
 
-    error = assert_raises ActiveRecord::RecordNotUnique do
-      identities(:kevin).magic_links.new(code: CODE, expires_at: 1.minute.from_now).save!(validate: false)
+    error = nil
+    _, _, seen = capture do
+      error = assert_raises ActiveRecord::RecordNotUnique do
+        identities(:kevin).magic_links.new(code: CODE, expires_at: 1.minute.from_now).save!(validate: false)
+      end
     end
 
     assert_no_secret_in_error CODE, error
+    assert_no_secret CODE, seen.join("\n")
   end
 
   test "an invalid statement's error, which can quote the statement, carries no value" do
@@ -224,17 +262,26 @@ class ActiveRecordSqlRedactionTest < ActiveSupport::TestCase
   end
 
   private
+    # What the adapter executed comes from a subscriber prepended ahead of the redaction, so it sees the
+    # payload as the adapter built it; what consumers see comes from one subscribed after.
     def capture
       log = StringIO.new
-      executed = []
+      executed, seen = [], []
       logger, ActiveRecord::LogSubscriber.logger = ActiveRecord::LogSubscriber.logger, ActiveSupport::Logger.new(log)
-      record = ->(event) { executed << [ event.payload[:sql], *bind_values(event.payload[:type_casted_binds]) ].join(" ") }
+      raw = ActiveSupport::Notifications.subscribe("sql.active_record", prepend: true) { |event| executed << statement_of(event.payload) }
+      consumer = ActiveSupport::Notifications.subscribe("sql.active_record") { |event| seen << statement_of(event.payload) }
 
-      ActiveSupport::Notifications.subscribed(record, "sql.active_record") { yield }
+      yield
 
-      [ log.string, executed ]
+      [ log.string, executed, seen ]
     ensure
+      ActiveSupport::Notifications.unsubscribe(raw) if raw
+      ActiveSupport::Notifications.unsubscribe(consumer) if consumer
       ActiveRecord::LogSubscriber.logger = logger
+    end
+
+    def statement_of(payload)
+      [ payload[:sql], *bind_values(payload[:type_casted_binds]), *Array(payload[:binds]).map { |bind| bind.try(:value_before_type_cast) || bind }, *payload[:exception] ].join(" ")
     end
 
     def bind_values(binds)
