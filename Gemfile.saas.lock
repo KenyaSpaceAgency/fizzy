@@ -31,7 +31,7 @@ GIT
 
 GIT
   remote: https://github.com/basecamp/rails-structured-logging
-  revision: 3188e62eae1739d1c9028b91125422e3af6e8014
+  revision: 7125dc6d249cdbdc46c2544fc25e72bf5892a289
   specs:
     rails_structured_logging (0.3.0)
       json
