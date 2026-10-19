@@ -8,6 +8,10 @@
 class TrustedTypesViolation
   DIRECTIVE = "require-trusted-types-for"
 
+  # Beyond any real script's line or column, and short enough that a report
+  # can't make the log line long with a 16 KB integer.
+  MAX_POSITION = 10_000_000
+
   class << self
     def parse(json)
       report = JSON.parse(json.to_s)
@@ -49,7 +53,7 @@ class TrustedTypesViolation
   private
     # Reports come from anyone, so a field may be any JSON type.
     def number(value)
-      value.is_a?(Integer) ? value : 0
+      value.is_a?(Integer) && value.between?(0, MAX_POSITION) ? value : 0
     end
 
     def path_of(url)

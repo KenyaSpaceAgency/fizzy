@@ -30,6 +30,12 @@ class TrustedTypesViolationTest < ActiveSupport::TestCase
     assert_equal "/assets/app.js:0:0", violation.source
   end
 
+  test "drops a line or column no script could have" do
+    violation = TrustedTypesViolation.parse(%({"csp-report":{"effective-directive":"require-trusted-types-for","source-file":"https://app.fizzy.do/assets/app.js","line-number":#{"9" * 15_000},"column-number":-1}}))
+
+    assert_equal "/assets/app.js:0:0", violation.source
+  end
+
   test "ignores reports for other directives" do
     assert_nil TrustedTypesViolation.parse(report("effective-directive" => "script-src-elem"))
   end
