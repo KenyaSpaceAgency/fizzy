@@ -2,7 +2,11 @@
 # Route the hosted MCP's host name from a destination's load balancers to the
 # fizzy_mcp accessory, on the iad web hosts that run it (saas/config/deploy.yml).
 #
-#   saas/script/configure-lb-mcp.sh staging|production|beta1
+#   saas/script/configure-lb-mcp.sh staging|production|beta1 [--without <host>]
+#
+# --without routes to every target but one, so saas/bin/mcp-rolling-reboot can
+# drain a host before rebooting its accessory, then rerun this without it to
+# put the host back. It refuses to leave a destination with no target.
 #
 # A separate kamal-proxy service, fizzy_mcp, beside the app's `fizzy` service,
 # so this never redeploys the app's route. Every load balancer sends MCP to iad
@@ -24,7 +28,14 @@
 # DNS for the name reaches these balancers.
 set -euo pipefail
 
-destination=${1:?usage: saas/script/configure-lb-mcp.sh staging|production|beta1}
+destination=${1:?usage: saas/script/configure-lb-mcp.sh staging|production|beta1 [--without <host>]}
+without=""
+if [[ ${2:-} == --without ]]; then
+  without=${3:?--without needs a host}
+elif [[ -n ${2:-} ]]; then
+  echo "unknown argument: $2" >&2
+  exit 1
+fi
 
 case "$destination" in
   production)
@@ -60,13 +71,21 @@ case "$destination" in
 esac
 
 target_flags=()
-for target in "${targets[@]}"; do target_flags+=("--target=$target"); done
+for target in "${targets[@]}"; do
+  [[ $target == "$without" ]] || target_flags+=("--target=$target")
+done
+if [[ -n $without && ${#target_flags[@]} -eq ${#targets[@]} ]]; then
+  echo "$without is not a $destination target" >&2
+  exit 1
+fi
+(( ${#target_flags[@]} > 0 )) || { echo "refusing to leave $host with no target" >&2; exit 1; }
 
 for balancer in "${balancers[@]}"; do
-  echo "==> $balancer: $host -> ${targets[*]}"
+  echo "==> $balancer: $host -> ${target_flags[*]#--target=}"
   # The balancers run basecamp/kamal-proxy:lb; refuse rather than route MCP
   # without the client's address if that build predates --client-ip-header.
-  if ! ssh "app@$balancer" docker exec fizzy-load-balancer kamal-proxy deploy --help | grep -q -- --client-ip-header; then
+  help=$(ssh "app@$balancer" docker exec fizzy-load-balancer kamal-proxy deploy --help)
+  if [[ $help != *--client-ip-header* ]]; then
     echo "$balancer: this kamal-proxy has no --client-ip-header; not routing $host" >&2
     exit 1
   fi

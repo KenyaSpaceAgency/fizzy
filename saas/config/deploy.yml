@@ -133,7 +133,7 @@ accessories:
 # Lighting a destination means Fizzy serving the delegation exchange there (hosted plan, phases B-C), the
 # fizzy-mcp-server client and its secret provisioned, and the exchange env and secret added to that
 # destination's file.
-<%- if %w[ production staging ].include?(ENV["KAMAL_DESTINATION"]) || ENV["KAMAL_DESTINATION"].to_s.match?(/\Abeta\d+\z/) -%>
+<%- if %w[ production staging beta ].include?(ENV["KAMAL_DESTINATION"]) || ENV["KAMAL_DESTINATION"].to_s.match?(/\Abeta\d+\z/) -%>
   fizzy_mcp:
     # TODO: the digest pin basecamp/fizzy-mcp-server's scripts/build-image.sh prints. There's no release
     # yet, so this tag doesn't exist and a boot fails at the pull, which is the right way to fail.
