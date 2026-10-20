@@ -53,4 +53,10 @@ class OauthHelperTest < ActionView::TestCase
     assert_select "input[type=hidden][name=account_id][value=?]", account.id.to_s
     assert_select "bdi", text: account.name
   end
+
+  test "a client's remote hosts skip its on-device callbacks and repeats" do
+    client = Oauth::Client.new redirect_uris: %w[ http://127.0.0.1/cb https://a.example.com/x https://a.example.com/y com.example.app:/cb https://b.example.com:8443/cb ]
+
+    assert_equal %w[ a.example.com b.example.com:8443 ], oauth_client_remote_hosts(client)
+  end
 end

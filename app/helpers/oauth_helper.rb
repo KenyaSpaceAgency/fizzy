@@ -51,6 +51,13 @@ module OauthHelper
     nil
   end
 
+  # Every place outside this device a client's access can go, as consent would
+  # name each one. A client may register several callbacks, and its grants may
+  # have come through any of them, so none speaks for the rest.
+  def oauth_client_remote_hosts(client)
+    client.redirect_uris.filter_map { |uri| oauth_redirect_host(uri) }.uniq
+  end
+
   # The access levels a client may be granted, weakest first, each with what
   # it lets the app do in plain words.
   def oauth_access_levels(client)

@@ -104,4 +104,15 @@ class My::ConnectedAppsControllerTest < ActionDispatch::IntegrationTest
     assert_select ".connected-apps__empty", text: /Nothing connected yet/
     assert_select ".connected-app", count: 0
   end
+
+  test "index names every remote host a self-registered app can send its access to, not just the first" do
+    client = Oauth::Client.create! name: "Two Homes", dynamically_registered: true,
+      redirect_uris: %w[ http://127.0.0.1:8888/callback https://one.example.com/cb https://two.example.com:8443/cb ]
+    @identity.access_tokens.create!(oauth_client: client, permission: :read)
+
+    get my_connected_apps_path
+
+    assert_select "#connected_apps_web ~ .connected-app", text: /Name set by the app at one.example.com or two.example.com:8443/
+    assert_no_match "Name set by an app on your device", response.body
+  end
 end

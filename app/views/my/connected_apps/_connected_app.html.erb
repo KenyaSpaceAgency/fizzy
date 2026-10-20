@@ -1,4 +1,4 @@
-<% redirect_host = client.dynamically_registered? ? oauth_redirect_host(client.redirect_uris.first) : nil %>
+<% remote_hosts = oauth_client_remote_hosts(client) %>
 <% permission = tokens.any?(&:write?) ? "write" : "read" %>
 
 <article class="connected-app" id="<%= dom_id(client, :connected_app) %>">
@@ -9,8 +9,8 @@
 
     <% if client.dynamically_registered? %>
       <p class="txt-x-small txt-subtle margin-none">
-        <% if redirect_host %>
-          Name set by the app at <%= redirect_host %>
+        <% if remote_hosts.any? %>
+          Name set by the app at <%= remote_hosts.to_sentence(two_words_connector: " or ", last_word_connector: " or ") %>
         <% else %>
           Name set by an app on your device
         <% end %>
