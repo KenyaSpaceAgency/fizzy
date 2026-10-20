@@ -68,9 +68,9 @@ class Oauth::Client < ApplicationRecord
 
   # Raises ActiveRecord::RecordNotFound if the client has been swept since it
   # was read.
-  def redeem(authorization_code, identity:, permission:)
+  def redeem(authorization_code, identity:, permission:, **attributes)
     with_lock do
-      identity.access_tokens.redeem authorization_code, oauth_client: self, permission: permission
+      identity.access_tokens.redeem authorization_code, oauth_client: self, permission: permission, **attributes
     end
   end
 

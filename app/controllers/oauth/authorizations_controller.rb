@@ -26,12 +26,16 @@ class Oauth::AuthorizationsController < Oauth::BaseController
   before_action :validate_pkce
   before_action :validate_scope
   before_action :validate_state
+  before_action :set_audience
+  before_action :set_accounts, if: :audienced?
+  before_action :set_account, if: :audienced?, only: :create
 
   def new
     @scope = Oauth.canonical_scope(params[:scope].presence || "read")
     @redirect_uri = params[:redirect_uri]
     @state = params[:state]
     @code_challenge = params[:code_challenge]
+    @resource = @audience
   end
 
   def create
@@ -47,7 +51,9 @@ class Oauth::AuthorizationsController < Oauth::BaseController
         identity_id: Current.identity.id,
         code_challenge: params[:code_challenge],
         redirect_uri: params[:redirect_uri],
-        scope: Oauth.canonical_scope(params[:scope].presence || "read")
+        scope: Oauth.canonical_scope(params[:scope].presence || "read"),
+        audience: @audience,
+        account_id: @account&.id
 
       redirect_to success_redirect_uri(code), allow_other_host: true
     else
@@ -117,6 +123,53 @@ class Oauth::AuthorizationsController < Oauth::BaseController
       end
     end
 
+    # A grant for the hosted MCP server is audienced to it (RFC 8707), and so
+    # bound to one account. A resource naming Fizzy's own API, or none, keeps
+    # the grant identity-wide, as every grant has been.
+    def set_audience
+      unless performed?
+        if !single_resource?
+          redirect_with_error "invalid_target", "Only one resource indicator is supported"
+        elsif Oauth.mcp_resource?(resource_param)
+          @audience = resource_param
+        elsif resource_param.present? && !service_resource?(resource_param)
+          redirect_with_error "invalid_target", "Unknown resource"
+        end
+      end
+    end
+
+    def audienced?
+      @audience.present?
+    end
+
+    # An audienced grant reaches one account, which the person picks at consent
+    # from the active accounts they belong to.
+    def set_accounts
+      unless performed?
+        @accounts = Current.identity.users_with_active_accounts.map(&:account).sort_by { |account| account.name.to_s.downcase }
+
+        if @accounts.empty?
+          render_error "access_denied", "You have no account to connect"
+        end
+      end
+    end
+
+    def set_account
+      unless performed? || denial?
+        @account = @accounts.find { |account| account.id == params[:account_id] }
+
+        unless @account
+          render_error "invalid_request", "Choose an account to connect"
+        end
+      end
+    end
+
+    def render_error(error, description)
+      @error = error
+      @error_description = description
+      render :error, status: :bad_request
+    end
+
     def valid_state?
       params[:state].nil? || (params[:state].is_a?(String) && params[:state].length <= STATE_MAXIMUM_LENGTH)
     end
@@ -128,9 +181,7 @@ class Oauth::AuthorizationsController < Oauth::BaseController
       if params[:redirect_uri].present? && @client&.allows_redirect?(params[:redirect_uri]) && @client.vetted_redirect?(params[:redirect_uri])
         redirect_to error_redirect_uri(error, description), allow_other_host: true
       else
-        @error = error
-        @error_description = description
-        render :error, status: :bad_request
+        render_error error, description
       end
     end
 

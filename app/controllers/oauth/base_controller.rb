@@ -43,6 +43,39 @@ class Oauth::BaseController < ApplicationController
       root_url(script_name: nil).delete_suffix("/")
     end
 
+    # A resource parameter (RFC 8707) names the protected resource a grant is
+    # for. Fizzy's own API is the resource its protected-resource metadata
+    # publishes, the app's root URL; naming it is the same as naming none.
+    # A configured MCP resource (Oauth.mcp_resources) audiences the grant.
+    # Anything else, including several resources at once, is invalid_target.
+    def resource_param
+      params[:resource]
+    end
+
+    def single_resource?
+      resource_param.nil? || resource_param.is_a?(String)
+    end
+
+    def service_resource?(resource)
+      resource.is_a?(String) && resource.in?([ root_url(script_name: nil), oauth_issuer ])
+    end
+
+    # Whether the request's resource parameter names the given audience: the
+    # MCP resource an audienced grant was issued for, or, for a grant with
+    # none, Fizzy's API. An absent or empty parameter names whatever the grant
+    # already has (RFC 8707 §2.2: confirm, never confer).
+    def resource_matches?(audience)
+      if !single_resource?
+        false
+      elsif resource_param.blank?
+        true
+      elsif audience.present?
+        resource_param == audience
+      else
+        service_resource?(resource_param)
+      end
+    end
+
     def prevent_caching
       response.headers["Cache-Control"] = "no-store"
       response.headers["Pragma"] = "no-cache"
