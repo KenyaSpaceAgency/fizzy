@@ -157,6 +157,24 @@ class OauthAudienceTest < ActionDispatch::IntegrationTest
     assert_select "code", text: "invalid_request"
   end
 
+  test "consent for the MCP resource is refused to someone with no account to connect" do
+    sign_in_as Identity.create!(email_address: "nobody@example.com")
+
+    get_consent resource: MCP_RESOURCE
+
+    assert_response :bad_request
+    assert_select "code", text: "access_denied"
+  end
+
+  test "denying an audienced request tells the client no, even with no account to connect" do
+    sign_in_as Identity.create!(email_address: "nobody@example.com")
+
+    post_consent resource: MCP_RESOURCE, error: "access_denied"
+
+    assert_response :redirect
+    assert_equal "access_denied", redirect_params["error"]
+  end
+
   test "a code for an account the person has since left doesn't redeem" do
     sign_in_as :david
     code = consent_code(resource: MCP_RESOURCE, account_id: accounts(:initech).id)

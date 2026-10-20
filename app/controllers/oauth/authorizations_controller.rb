@@ -27,8 +27,8 @@ class Oauth::AuthorizationsController < Oauth::BaseController
   before_action :validate_scope
   before_action :validate_state
   before_action :set_audience
-  before_action :set_accounts, if: :audienced?
-  before_action :set_account, if: :audienced?, only: :create
+  before_action :set_accounts, if: :audienced?, unless: :denial?
+  before_action :set_account, if: :audienced?, unless: :denial?, only: :create
 
   def new
     @scope = Oauth.canonical_scope(params[:scope].presence || "read")
@@ -155,7 +155,7 @@ class Oauth::AuthorizationsController < Oauth::BaseController
     end
 
     def set_account
-      unless performed? || denial?
+      unless performed?
         @account = @accounts.find { |account| account.id == params[:account_id] }
 
         unless @account
