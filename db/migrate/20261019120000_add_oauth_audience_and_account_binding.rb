@@ -13,9 +13,9 @@
 # index is INPLACE, LOCK=NONE.
 class AddOauthAudienceAndAccountBinding < ActiveRecord::Migration[8.2]
   def change
-    add_column :identity_access_tokens, :audience, :string
+    add_column :identity_access_tokens, :audience, :string, limit: 255
     add_reference :identity_access_tokens, :account, type: :uuid, foreign_key: false
 
-    add_column :oauth_clients, :protected_resource, :string
+    add_column :oauth_clients, :protected_resource, :string, limit: 255
   end
 end
