@@ -8,7 +8,12 @@
 module Oauth::AuthorizationCode
   # RFC 7636 §4.1: 43 to 128 unreserved characters.
   VERIFIER = /\A[A-Za-z0-9._~-]{43,128}\z/
-  Details = ::Data.define(:client_id, :identity_id, :code_challenge, :redirect_uri, :scope, :jti, :audience, :account_id)
+  Details = ::Data.define(:client_id, :identity_id, :code_challenge, :redirect_uri, :scope, :jti, :audience, :account_id) do
+    # A code for Fizzy's own API carries neither.
+    def initialize(audience: nil, account_id: nil, **details)
+      super
+    end
+  end
 
   class << self
     def generate(client_id:, identity_id:, code_challenge:, redirect_uri:, scope:, audience: nil, account_id: nil)
