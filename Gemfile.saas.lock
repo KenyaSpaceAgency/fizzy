@@ -31,11 +31,11 @@ GIT
 
 GIT
   remote: https://github.com/basecamp/rails-structured-logging
-  revision: 7125dc6d249cdbdc46c2544fc25e72bf5892a289
+  revision: 1937969a0f5a6f2015b9c89c0775e140e1b047a3
   specs:
     rails_structured_logging (0.3.0)
       json
-      rails (>= 6.0.0)
+      rails (>= 6.1.0)
 
 GIT
   remote: https://github.com/basecamp/surfguard
