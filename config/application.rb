@@ -42,5 +42,12 @@ module Fizzy
     config.action_pack.passkey.challenge_url = -> { my_passkey_challenge_path(script_name: "") }
 
     config.mission_control.jobs.http_basic_auth_enabled = false
+
+    # The protected resources an OAuth grant may name as its audience (RFC 8707),
+    # besides Fizzy's own API: the hosted MCP server's resource URL, e.g.
+    # https://mcp.fizzy.do/mcp. Exact strings, separated by commas or spaces.
+    # None unless configured, so an install that never sets it issues no
+    # audienced grant (see Oauth.mcp_resources).
+    config.x.oauth.mcp_resources = ENV.fetch("FIZZY_OAUTH_MCP_RESOURCES", "").split(/[\s,]+/).compact_blank
   end
 end
