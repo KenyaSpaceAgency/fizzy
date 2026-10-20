@@ -75,4 +75,33 @@ class My::ConnectedAppsControllerTest < ActionDispatch::IntegrationTest
     delete my_connected_app_path(client)
     assert_response :not_found
   end
+
+  test "index groups apps by kind and says what each can do" do
+    @identity.access_tokens.create!(oauth_client: oauth_clients(:mcp_client), permission: :read)
+    @identity.access_tokens.create!(oauth_client: oauth_clients(:confidential_client), permission: :write)
+
+    get my_connected_apps_path
+
+    assert_response :success
+    assert_select ".connected-apps__group", count: 2
+    assert_select "#connected_apps_web + .connected-app, #connected_apps_web ~ .connected-app", text: /Confidential Connector.*Read and write/m
+    assert_select "#connected_apps_local ~ .connected-app", text: /Test MCP Client.*Name set by an app on your device.*Read only/m
+    assert_select "#connected_apps_fizzy", count: 0
+  end
+
+  test "index names where a self-registered web app's access goes" do
+    @identity.access_tokens.create!(oauth_client: oauth_clients(:confidential_client), permission: :read)
+
+    get my_connected_apps_path
+
+    assert_select ".connected-app", text: /Name set by the app at connector.example.com/
+  end
+
+  test "index shows an empty state when nothing is connected" do
+    get my_connected_apps_path
+
+    assert_response :success
+    assert_select ".connected-apps__empty", text: /Nothing connected yet/
+    assert_select ".connected-app", count: 0
+  end
 end

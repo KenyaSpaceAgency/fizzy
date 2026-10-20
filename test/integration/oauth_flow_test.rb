@@ -367,8 +367,8 @@ class OauthFlowTest < ActionDispatch::IntegrationTest
     get_consent_screen scope: "read write"
 
     assert_response :success
-    assert_select "select[name=scope] option[selected]", count: 1
-    assert_select "select[name=scope] option[selected][value=?]", "read write"
+    assert_select "input[type=radio][name=scope][checked]", count: 1
+    assert_select "input[type=radio][name=scope][checked][value=?]", "read write"
   end
 
   test "authorization preselects Read + Write when the client requests write" do
@@ -377,7 +377,7 @@ class OauthFlowTest < ActionDispatch::IntegrationTest
     get_consent_screen scope: "write"
 
     assert_response :success
-    assert_select "select[name=scope] option[selected][value=?]", "read write"
+    assert_select "input[type=radio][name=scope][checked][value=?]", "read write"
   end
 
   test "authorization preselects Read for a read request" do
@@ -386,7 +386,7 @@ class OauthFlowTest < ActionDispatch::IntegrationTest
     get_consent_screen scope: "read"
 
     assert_response :success
-    assert_select "select[name=scope] option[selected][value=?]", "read"
+    assert_select "input[type=radio][name=scope][checked][value=?]", "read"
   end
 
   test "authorization offers no write option to a read-only client" do
@@ -396,8 +396,8 @@ class OauthFlowTest < ActionDispatch::IntegrationTest
     get_consent_screen client: client, scope: "read"
 
     assert_response :success
-    assert_select "select[name=scope] option", count: 1
-    assert_select "select[name=scope] option[value=?]", "read"
+    assert_select "input[type=radio][name=scope]", count: 1
+    assert_select "input[type=radio][name=scope][value=?]", "read"
   end
 
   test "consent grants the canonical read write scope" do
