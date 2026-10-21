@@ -16,7 +16,7 @@ WORKDIR /rails
 
 # Install base packages
 RUN apt-get update -qq && \
-    apt-get install --no-install-recommends -y curl libjemalloc2 libvips sqlite3 libssl-dev && \
+    apt-get install --no-install-recommends -y ca-certificates curl libjemalloc2 libvips sqlite3 libssl-dev && \
     ln -s /usr/lib/$(uname -m)-linux-gnu/libjemalloc.so.2 /usr/local/lib/libjemalloc.so && \
     rm -rf /var/lib/apt/lists /var/cache/apt/archives
 
@@ -65,6 +65,21 @@ LABEL org.opencontainers.image.description="${OCI_DESCRIPTION}"
 ARG OCI_SOURCE
 LABEL org.opencontainers.image.source="${OCI_SOURCE}"
 LABEL org.opencontainers.image.licenses="O'Saasy"
+
+# The eMudhra intermediate CAs' private keys leaked in October 2026, and they chain to these two roots.
+# OpenSSL checks no revocation, so Ruby trusts whatever they sign until the roots leave the bundle.
+# ca-certificates is named in an apt-get install above, so a rebuild takes the distro's fixed package
+# rather than the one frozen into the base image. Fail the build if either root survives where Ruby's
+# OpenSSL looks for them.
+RUN ruby -ropenssl -e ' \
+  file = ENV[OpenSSL::X509::DEFAULT_CERT_FILE_ENV] || OpenSSL::X509::DEFAULT_CERT_FILE; \
+  dir = ENV[OpenSSL::X509::DEFAULT_CERT_DIR_ENV] || OpenSSL::X509::DEFAULT_CERT_DIR; \
+  pems = [file, *Dir.glob(File.join(dir, "*"))].select { |path| File.file?(path) } \
+    .flat_map { |path| File.read(path).scan(/-----BEGIN CERTIFICATE-----.+?-----END CERTIFICATE-----/m) }; \
+  subjects = pems.map { |pem| OpenSSL::X509::Certificate.new(pem).subject.to_s }.uniq; \
+  abort "Only #{subjects.size} roots in #{file} and #{dir}" if subjects.size < 100; \
+  distrusted = subjects.grep(%r{/CN=(emSign ECC Root CA - G3|AAA Certificate Services)\z}); \
+  abort "Distrusted roots still trusted: #{distrusted}" if distrusted.any?'
 
 # Run and own only the runtime files as a non-root user for security
 RUN groupadd --system --gid 1000 rails && \
