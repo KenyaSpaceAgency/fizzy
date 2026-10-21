@@ -13,6 +13,12 @@ ENV RAILS_ENV="production" \
     BUNDLE_GEMFILE="Gemfile.saas" \
     BUNDLE_WITHOUT="development"
 
+# Take the distro's current ca-certificates rather than the one frozen into the base image, here in
+# base so the build stage's gem and git fetches verify against it too. See the root check below.
+RUN apt-get update -qq && \
+    apt-get install --no-install-recommends -y ca-certificates && \
+    rm -rf /var/lib/apt/lists /var/cache/apt/archives
+
 
 # Throw-away build stage to reduce size of final image
 FROM base AS build
@@ -57,7 +63,7 @@ FROM base
 # library (ActiveStorage::VIPS_AVAILABLE=false), and config/initializers/vips.rb only demands it
 # when no cell is registered.
 RUN apt-get update -qq && \
-    apt-get install --no-install-recommends -y ca-certificates libsqlite3-0 sqlite3 libjemalloc-dev && \
+    apt-get install --no-install-recommends -y libsqlite3-0 sqlite3 libjemalloc-dev && \
     rm -rf /var/lib/apt/lists /var/cache/apt/archives
 
 # The eMudhra intermediate CAs' private keys leaked in October 2026, and they chain to these two roots.
