@@ -57,6 +57,7 @@ class Identity::ReviewerSignInTest < ActiveSupport::TestCase
   test "signs the configured identity out everywhere, and no one else" do
     @identity.sessions.create!
     other_sessions = identities(:jason).sessions.count
+    Identity.any_instance.expects(:close_remote_connections).once
 
     assert_operator Identity::ReviewerSignIn.sign_out_everywhere, :>, 0
     assert_empty @identity.sessions.reload

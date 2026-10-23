@@ -29,11 +29,12 @@ module Identity::ReviewerSignIn
       end
     end
 
-    # Ends every session the configured identity has, however it signed in. Run
+    # Ends every session the configured identity has, however it signed in, and
+    # closes its open Action Cable connections. Run
     # it when rotating the code, so sessions started with the old one end too.
     def sign_out_everywhere
       if configured? && identity = Identity.find_by(email_address: configured_email_address)
-        identity.sessions.destroy_all.size
+        identity.sessions.destroy_all.size.tap { identity.close_remote_connections }
       else
         0
       end
@@ -61,7 +62,7 @@ module Identity::ReviewerSignIn
 
       def record_use(identity)
         Rails.logger.warn "[ReviewerSignIn] Signed in identity #{identity.id} with the reviewer code"
-        Sentry.capture_message "Reviewer sign-in code used", level: :info, extra: { identity_id: identity.id } if defined?(Sentry)
+        Sentry.capture_message "Reviewer sign-in code used", level: :info if defined?(Sentry)
       end
 
       def configured_email_address
