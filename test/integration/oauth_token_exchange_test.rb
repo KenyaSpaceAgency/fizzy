@@ -249,6 +249,25 @@ class OauthTokenExchangeTest < ActionDispatch::IntegrationTest
     assert_oauth_error "invalid_target", "Only one resource may be named"
   end
 
+  test "only a form-urlencoded body is accepted, so no body can hide a repeated resource" do
+    boundary = "fizzy-exchange"
+    fields = { grant_type: GRANT_TYPE, subject_token: @subject.raw_token, subject_token_type: ACCESS_TOKEN_TYPE,
+      client_id: @client.client_id, client_secret: @secret }.to_a + [ [ :resource, RESOURCE ], [ :resource, "http://www.example.com" ] ]
+    multipart = fields.map { |name, value| "--#{boundary}\r\nContent-Disposition: form-data; name=\"#{name}\"\r\n\r\n#{value}\r\n" }.join + "--#{boundary}--\r\n"
+
+    assert_no_difference -> { Identity::AccessToken.delegated.count } do
+      untenanted do
+        post oauth_token_path, params: multipart, headers: { "Content-Type" => "multipart/form-data; boundary=#{boundary}" }
+      end
+    end
+    assert_oauth_error "invalid_request", "Token exchange requests must be application/x-www-form-urlencoded"
+
+    untenanted do
+      post oauth_token_path, params: fields.first(5).to_h.to_json, headers: { "Content-Type" => "application/json" }
+    end
+    assert_oauth_error "invalid_request", "Token exchange requests must be application/x-www-form-urlencoded"
+  end
+
   test "ending the subject grant sweeps its delegated tokens" do
     exchange
     delegated = response.parsed_body["access_token"]

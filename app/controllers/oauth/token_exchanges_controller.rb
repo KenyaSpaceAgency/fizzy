@@ -21,6 +21,7 @@ class Oauth::TokenExchangesController < Oauth::BaseController
 
   before_action :require_delegation_enabled
   before_action :require_issuance_enabled
+  before_action :require_form_body
   before_action :authenticate_client
   before_action :require_params
 
@@ -50,6 +51,16 @@ class Oauth::TokenExchangesController < Oauth::BaseController
     def require_delegation_enabled
       unless Oauth::TokenDelegation.enabled?
         oauth_error "unsupported_grant_type", "Only authorization_code and refresh_token grants are supported"
+      end
+    end
+
+    # RFC 8693 §2.1 sends the request form-urlencoded, as fizzy-mcp-server
+    # does, and only that body is accepted. It's also the one in which
+    # single_resource? can see every resource the request names: a multipart
+    # body hides repeats from that count as surely as Rack's params do.
+    def require_form_body
+      unless request.media_type == "application/x-www-form-urlencoded"
+        oauth_error "invalid_request", "Token exchange requests must be application/x-www-form-urlencoded"
       end
     end
 
