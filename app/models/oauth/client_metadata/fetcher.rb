@@ -11,9 +11,12 @@ require "net/http"
 #    can't see: Surfguard's DNS wait, TCP open, the TLS handshake. FetchOverrun
 #    is deliberately not a Timeout::Error, since Resolv rescues ResolvTimeout (a
 #    Timeout::Error) and would swallow the interrupt.
-# 3. Connect discipline: Surfguard resolves the host once and refuses private,
-#    loopback, link-local and other special-use addresses, and the connection is
-#    pinned to that address (http.ipaddr), so a second lookup can't rebind it.
+# 3. Connect discipline: Surfguard resolves the host once under its strict
+#    :iana_special_use policy, which refuses private, loopback and link-local
+#    addresses and every IANA special-purpose range (NAT64, AMT and AS112
+#    included, which the default policy admits). An answer set mixing public and
+#    blocked addresses is refused whole. The connection is pinned to the address
+#    admitted (http.ipaddr), so a second lookup can't rebind it.
 #    The proxy is an explicit nil, since Net::HTTP otherwise reads HTTP_PROXY
 #    and would send the request somewhere else. TLS verifies the peer against
 #    the URL's host, which also rides SNI and the Host header. max_retries is 0,
@@ -113,9 +116,7 @@ class Oauth::ClientMetadata::Fetcher
 
     Bulkhead.acquire do
       Timeout.timeout(remaining_time(deadline), FetchOverrun) do
-        # hostname, not host: an IPv6 literal's host keeps its brackets, which
-        # neither the resolver nor Net::HTTP accepts.
-        if address = Surfguard.resolve_public_ips(uri.hostname).first
+        if address = Surfguard.resolve_public_ip(uri.to_s, policy: :iana_special_use)
           perform_request(uri, address, etag: etag, deadline: deadline)
         else
           Result.failure(:blocked_address)

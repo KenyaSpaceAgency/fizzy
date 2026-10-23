@@ -75,7 +75,7 @@ class Oauth::ClientMetadata::ResolverTest < ActiveSupport::TestCase
     url = "https://tools.example.com/client.json"
     stub = stub_request(:get, url)
 
-    resolution = Oauth::ClientMetadata::Resolver.resolve_for_intake(url)
+    resolution = Oauth::ClientMetadata::Resolver.resolve_for_intake(url, requester: identities(:david))
 
     assert_equal :unrecognized_host, resolution.outcome
     assert_equal "Unknown client", resolution.error_description
@@ -83,7 +83,7 @@ class Oauth::ClientMetadata::ResolverTest < ActiveSupport::TestCase
   end
 
   test "an invalid identifier is an unknown client" do
-    assert_equal :invalid_url, Oauth::ClientMetadata::Resolver.resolve_for_intake("https://claude.ai/x?y=1").outcome
+    assert_equal :invalid_url, Oauth::ClientMetadata::Resolver.resolve_for_intake("https://claude.ai/x?y=1", requester: identities(:david)).outcome
   end
 
   test "a URL client_id never resolves a registered client" do
@@ -106,7 +106,7 @@ class Oauth::ClientMetadata::ResolverTest < ActiveSupport::TestCase
     assert_nil Oauth::Client.find_presented(variant)
 
     stub_request(:get, variant).to_return(status: 200, body: document(client_id: variant).to_json, headers: { content_type: "application/json" })
-    resolution = Oauth::ClientMetadata::Resolver.resolve_for_intake(variant)
+    resolution = Oauth::ClientMetadata::Resolver.resolve_for_intake(variant, requester: identities(:david))
 
     if resolution.success?
       assert_equal variant, resolution.client.client_id
@@ -133,7 +133,7 @@ class Oauth::ClientMetadata::ResolverTest < ActiveSupport::TestCase
 
   test "losing a creation race adopts the winner" do
     stub_document
-    resolver = Oauth::ClientMetadata::Resolver.new(URL)
+    resolver = Oauth::ClientMetadata::Resolver.new(URL, requester: identities(:david))
     winner = Oauth::Client.create!(client_id: URL, name: "Claude", redirect_uris: [ CALLBACK ], client_id_metadata_document: true)
     Oauth::Client.stubs(:find_presented).returns(nil).then.returns(winner)
 
@@ -154,6 +154,17 @@ class Oauth::ClientMetadata::ResolverTest < ActiveSupport::TestCase
     WebMock.allow_net_connect!
   end
 
+  test "one person spending the fetch budget leaves everyone else's" do
+    with_memory_cache do
+      stub_request(:get, URL).to_return(status: 500)
+      Oauth::ClientMetadata::Resolver::URL_ATTEMPT_LIMIT.times { resolve(persist: false) }
+      assert_equal :throttled, resolve(persist: false).outcome
+
+      stub_document
+      assert resolve(persist: true, requester: identities(:kevin)).success?
+    end
+  end
+
   test "a provisioned client over the fetch budget keeps its stored document" do
     with_memory_cache do
       stub_document
@@ -168,8 +179,8 @@ class Oauth::ClientMetadata::ResolverTest < ActiveSupport::TestCase
   end
 
   private
-    def resolve(persist:)
-      Oauth::ClientMetadata::Resolver.new(URL).resolve(persist: persist)
+    def resolve(persist:, requester: identities(:david))
+      Oauth::ClientMetadata::Resolver.new(URL, requester: requester).resolve(persist: persist)
     end
 
     def document(**members)

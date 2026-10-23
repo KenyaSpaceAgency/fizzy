@@ -70,11 +70,14 @@ class Oauth::AuthorizationsController < Oauth::BaseController
       end
     end
 
+    # Only a single string names a client: an array would reach find_by as an
+    # IN list. A metadata document client is reached only through its URL, so
+    # the switch, the exact comparison and the refresh all apply to it.
     def set_client
       @client = if Oauth::ClientMetadata::Url.url_shaped?(params[:client_id])
         metadata_document_client
-      else
-        Oauth::Client.find_by(client_id: params[:client_id])
+      elsif params[:client_id].is_a?(String)
+        Oauth::Client.find_by(client_id: params[:client_id]).then { |client| client unless client&.metadata_document? }
       end
 
       oauth_error("invalid_request", "Unknown client") unless performed? || @client
@@ -88,7 +91,7 @@ class Oauth::AuthorizationsController < Oauth::BaseController
       if denial?
         metadata_document_client_for_denial
       elsif Oauth::Availability.metadata_documents_enabled?(params[:client_id])
-        resolution = request.post? ? Oauth::ClientMetadata::Resolver.resolve_for_intake(params[:client_id]) : Oauth::ClientMetadata::Resolver.resolve_for_read(params[:client_id])
+        resolution = Oauth::ClientMetadata::Resolver.new(params[:client_id], requester: Current.identity).resolve(persist: request.post?)
         resolution.client || refuse_metadata_document(resolution)
       end
     end
@@ -102,7 +105,7 @@ class Oauth::AuthorizationsController < Oauth::BaseController
       row = nil unless row&.metadata_document?
 
       if (row.nil? || !row.allows_redirect?(params[:redirect_uri])) && Oauth::Availability.metadata_documents_enabled?(params[:client_id])
-        Oauth::ClientMetadata::Resolver.resolve_for_read(params[:client_id]).client || row
+        Oauth::ClientMetadata::Resolver.resolve_for_read(params[:client_id], requester: Current.identity).client || row
       else
         row
       end

@@ -15,17 +15,22 @@
 # endpoint is the hot path.
 #
 # A failed fetch aborts the authorization (the draft's answer); no failure is
-# stored. Fetches are limited per URL and per host, counted on attempt in
-# Rails.cache. The counters fail open, as a flushed cache only resets them. A
-# provisioned client over budget keeps its stored document (see #throttled).
+# stored. Fetches are limited per person, per URL and per host, counted on
+# attempt in Rails.cache. The counters fail open, as a flushed cache only resets
+# them. Per person, because a shared budget is one anyone signed in can spend:
+# a consent GET fetches without provisioning, so a script reloading it would
+# refuse a client's first authorization to everyone. What bounds Fizzy's fetches
+# overall is the fetcher's bulkhead and deadline, which answer a retryable 503
+# rather than refusing the client. A provisioned client over budget keeps its
+# stored document (see #throttled).
 class Oauth::ClientMetadata::Resolver
-  # Allows the consent render and the authorization POST their two fetches.
+  # Allows the consent render and the authorization POST their two fetches,
+  # with room for retries.
   URL_ATTEMPT_LIMIT = 6
   URL_ATTEMPT_WINDOW = 1.minute
 
-  # A recognized host is a handful of large connector platforms; this bounds how
-  # often Fizzy fetches from any one of them.
-  HOST_ATTEMPT_LIMIT = 600
+  # Bounds one person rotating paths on an allowlisted host.
+  HOST_ATTEMPT_LIMIT = 60
   HOST_ATTEMPT_WINDOW = 1.hour
 
   Resolution = Data.define(:client, :outcome, :error_description) do
@@ -35,16 +40,19 @@ class Oauth::ClientMetadata::Resolver
     def success? = client.present?
   end
 
-  def self.resolve_for_read(client_id)
-    new(client_id).resolve(persist: false)
+  def self.resolve_for_read(client_id, requester:)
+    new(client_id, requester: requester).resolve(persist: false)
   end
 
-  def self.resolve_for_intake(client_id)
-    new(client_id).resolve(persist: true)
+  def self.resolve_for_intake(client_id, requester:)
+    new(client_id, requester: requester).resolve(persist: true)
   end
 
-  def initialize(client_id, fetcher: Oauth::ClientMetadata::Fetcher.new)
+  # requester is whoever is asking (the signed-in identity), whose fetch budget
+  # the attempt spends.
+  def initialize(client_id, requester:, fetcher: Oauth::ClientMetadata::Fetcher.new)
     @client_id = client_id
+    @requester = requester
     @fetcher = fetcher
   end
 
@@ -216,8 +224,12 @@ class Oauth::ClientMetadata::Resolver
     end
 
     def fetch_budget_available?
-      within_budget?("oauth:client_metadata:url:#{Digest::SHA256.hexdigest(@client_id)}", URL_ATTEMPT_LIMIT, URL_ATTEMPT_WINDOW) && \
-        within_budget?("oauth:client_metadata:host:#{Oauth::ClientMetadata::Url.host(@client_id).downcase}", HOST_ATTEMPT_LIMIT, HOST_ATTEMPT_WINDOW)
+      within_budget?("oauth:client_metadata:#{requester_key}:url:#{Digest::SHA256.hexdigest(@client_id)}", URL_ATTEMPT_LIMIT, URL_ATTEMPT_WINDOW) && \
+        within_budget?("oauth:client_metadata:#{requester_key}:host:#{Oauth::ClientMetadata::Url.host(@client_id).downcase}", HOST_ATTEMPT_LIMIT, HOST_ATTEMPT_WINDOW)
+    end
+
+    def requester_key
+      @requester&.id || "anonymous"
     end
 
     def within_budget?(key, limit, window)

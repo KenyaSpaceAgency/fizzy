@@ -101,6 +101,31 @@ class OauthClientMetadataDocumentsTest < ActionDispatch::IntegrationTest
     assert_equal "Unknown client", response.parsed_body["error_description"]
   end
 
+  test "a client_id array never reaches a metadata document client" do
+    sign_in_as :david
+    untenanted { post oauth_authorization_path, params: authorization }
+    assert Oauth::Client.find_presented(URL)
+
+    with_metadata_documents(false) do
+      untenanted { post oauth_authorization_path, params: authorization.merge(client_id: [ URL ]) }
+    end
+
+    assert_response :bad_request
+    assert_equal "Unknown client", response.parsed_body["error_description"]
+  end
+
+  test "a metadata document client isn't reachable by a client_id that isn't its URL" do
+    sign_in_as :david
+    untenanted { post oauth_authorization_path, params: authorization }
+    client = Oauth::Client.find_presented(URL)
+    client.update_columns(client_id: "not-a-url-#{client.id}")
+
+    untenanted { get new_oauth_authorization_path, params: authorization.merge(client_id: client.client_id) }
+
+    assert_response :bad_request
+    assert_equal "Unknown client", response.parsed_body["error_description"]
+  end
+
   test "an unvetted redirect gets no error redirect before consent" do
     sign_in_as :david
 

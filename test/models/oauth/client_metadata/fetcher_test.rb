@@ -37,6 +37,24 @@ class Oauth::ClientMetadata::FetcherTest < ActiveSupport::TestCase
     end
   end
 
+  test "refuses the special-purpose ranges the default policy admits" do
+    { "64:ff9b::808:808" => "NAT64 of a public address", "192.52.193.1" => "AMT", "192.175.48.1" => "AS112" }.each do |address, range|
+      stub_dns_resolution(address)
+      stub = stub_request(:get, URL)
+
+      assert_equal :blocked_address, @fetcher.fetch(URL).outcome, range
+      assert_not_requested stub
+    end
+  end
+
+  test "refuses a host whose answers mix public and blocked addresses" do
+    stub_dns_resolution(PUBLIC_IP, "10.0.0.5")
+    stub = stub_request(:get, URL)
+
+    assert_equal :blocked_address, @fetcher.fetch(URL).outcome
+    assert_not_requested stub
+  end
+
   test "refuses a host that resolves to nothing" do
     stub_dns_failure
 
