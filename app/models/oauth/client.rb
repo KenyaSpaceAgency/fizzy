@@ -59,14 +59,24 @@ class Oauth::Client < ApplicationRecord
   # (FIZZY_MCP_EXCHANGE_CLIENT_ID).
   MCP_CLIENT_ID = "fizzy-mcp-server"
 
-  # Creates or converges the MCP server's client (bin/rails
+  # Creates or converges an MCP server's client (bin/rails
   # oauth:provision_mcp_client). A new one gets a secret nobody holds, so it
   # can't authenticate until oauth:mint_client_secret gives it one; an
   # existing one keeps the secret it has.
-  def self.provision_mcp_client!(protected_resource:)
-    find_or_initialize_by(client_id: MCP_CLIENT_ID).tap do |client|
-      client.update! name: "Fizzy MCP server", protected_resource: protected_resource, scopes: %w[ read write ],
-        redirect_uris: [], token_endpoint_auth_method: "client_secret_post", dynamically_registered: false, trusted: false
+  #
+  # Each client fronts one resource, so each configured resource needs a
+  # client of its own: one already fronting another resource that's still
+  # configured is refused rather than repointed, which would strand every
+  # grant audienced to that resource. One whose resource has been dropped
+  # from the configuration may move.
+  def self.provision_mcp_client!(protected_resource:, client_id: MCP_CLIENT_ID)
+    find_or_initialize_by(client_id: client_id).tap do |client|
+      if client.protected_resource != protected_resource && client.delegation_client?
+        raise ArgumentError, "#{client_id} already fronts #{client.protected_resource}; give #{protected_resource} a client of its own"
+      else
+        client.update! name: "Fizzy MCP server", protected_resource: protected_resource, scopes: %w[ read write ],
+          redirect_uris: [], token_endpoint_auth_method: "client_secret_post", dynamically_registered: false, trusted: false
+      end
     end
   end
 

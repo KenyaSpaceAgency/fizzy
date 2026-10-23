@@ -145,6 +145,28 @@ class Oauth::TokenDelegationTest < ActiveSupport::TestCase
     assert_empty client.redirect_uris
   end
 
+  test "a second configured resource gets a client of its own, and can't take over the first's" do
+    other = "https://other.example.com/mcp"
+    Rails.application.config.x.oauth.mcp_resources = [ RESOURCE, other ]
+
+    assert_raises(ArgumentError) { Oauth::Client.provision_mcp_client!(protected_resource: other) }
+    assert_equal RESOURCE, @client.reload.protected_resource
+
+    second = Oauth::Client.provision_mcp_client!(protected_resource: other, client_id: "fizzy-mcp-server-other")
+    assert second.delegation_client?
+    assert_not_equal @client, second
+  end
+
+  test "a client whose resource was dropped from the configuration may move to a new one" do
+    moved = "https://mcp.example.com/v2/mcp"
+    Rails.application.config.x.oauth.mcp_resources = [ moved ]
+
+    client = Oauth::Client.provision_mcp_client!(protected_resource: moved)
+
+    assert_equal @client, client
+    assert_equal moved, client.protected_resource
+  end
+
   test "a new client holds a secret nobody knows until one is minted" do
     assert @client.client_secret_digest.present?
 
@@ -188,6 +210,6 @@ class Oauth::TokenDelegationTest < ActiveSupport::TestCase
     end
 
     def delegation(**options)
-      @delegation = Oauth::TokenDelegation.new(client: @client, subject_token: @subject.raw_token, api_origin: "http://www.example.com", **options)
+      @delegation = Oauth::TokenDelegation.new(client: @client, subject_token: @subject.raw_token, api_resource: ->(resource) { resource == "http://www.example.com" }, **options)
     end
 end

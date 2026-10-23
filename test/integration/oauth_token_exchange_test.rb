@@ -223,6 +223,10 @@ class OauthTokenExchangeTest < ActionDispatch::IntegrationTest
     exchange resource: "http://www.example.com"
     assert_response :success
 
+    untenanted { get "/.well-known/oauth-protected-resource" }
+    exchange resource: response.parsed_body["resource"]
+    assert_response :success
+
     exchange resource: RESOURCE
     assert_oauth_error "invalid_target", "resource does not match the subject token's account"
   end

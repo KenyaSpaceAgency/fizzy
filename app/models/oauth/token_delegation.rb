@@ -23,7 +23,7 @@
 #   invalid_request, as bc3 does: the server tells a dead subject (terminal,
 #   reconnect) from a malformed request (its own bug).
 #
-#   delegation = Oauth::TokenDelegation.new(client:, subject_token:, api_origin:, requested_scope:, resource:)
+#   delegation = Oauth::TokenDelegation.new(client:, subject_token:, api_resource:, requested_scope:, resource:)
 #   delegation.validate!
 #   access_token = delegation.mint!
 class Oauth::TokenDelegation
@@ -45,7 +45,7 @@ class Oauth::TokenDelegation
     end
   end
 
-  attr_reader :client, :subject_token, :requested_scope, :resource, :api_origin, :subject, :permission
+  attr_reader :client, :subject_token, :requested_scope, :resource, :api_resource, :subject, :permission
 
   # Delegation is on only where Fizzy is configured with a protected resource
   # to issue grants for (Oauth.mcp_resources). Off on every install that
@@ -62,10 +62,11 @@ class Oauth::TokenDelegation
     false
   end
 
-  # api_origin is Fizzy's own origin, the one resource a minted token is for.
-  def initialize(client:, subject_token:, api_origin:, requested_scope: nil, resource: nil)
+  # api_resource says whether a resource identifier names Fizzy's own API, the
+  # one resource a minted token is for, in any form the server advertises it.
+  def initialize(client:, subject_token:, api_resource:, requested_scope: nil, resource: nil)
     @client = client
-    @api_origin = api_origin
+    @api_resource = api_resource
     @subject_token = subject_token
     @requested_scope = requested_scope
     @resource = resource
@@ -170,10 +171,11 @@ class Oauth::TokenDelegation
     end
 
     # RFC 8707: a resource names where the minted token will be used. Fizzy's
-    # API is the only place it can be, so Fizzy's own origin is accepted like
-    # an absent parameter, and anything else is refused.
+    # API is the only place it can be, so its identifier, as the protected
+    # resource metadata advertises it or as the issuer, is accepted like an
+    # absent parameter, and anything else is refused.
     def validate_resource
-      if resource.present? && resource != api_origin
+      if resource.present? && !api_resource.call(resource)
         raise Refusal.new("invalid_target", "resource does not match the subject token's account")
       end
     end

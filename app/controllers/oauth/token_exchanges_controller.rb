@@ -28,7 +28,7 @@ class Oauth::TokenExchangesController < Oauth::BaseController
     delegation = Oauth::TokenDelegation.new \
       client: authenticated_client,
       subject_token: params[:subject_token],
-      api_origin: oauth_issuer,
+      api_resource: method(:service_resource?),
       requested_scope: params.key?(:scope) ? params[:scope].to_s : nil,
       resource: params[:resource].presence
     delegated_token = delegation.validate!.mint!
