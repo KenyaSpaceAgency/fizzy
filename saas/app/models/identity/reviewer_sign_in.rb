@@ -42,7 +42,7 @@ module Identity::ReviewerSignIn
     private
       def matches?(email_address, code)
         configured? && \
-          email_address.present? && code.present? && \
+          email_address.present? && MagicLink::Code.sanitize(code).present? && \
           ActiveSupport::SecurityUtils.secure_compare(email_address.to_s.downcase, configured_email_address.downcase) && \
           ActiveSupport::SecurityUtils.secure_compare(digest(code), configured_code_digest.downcase)
       end

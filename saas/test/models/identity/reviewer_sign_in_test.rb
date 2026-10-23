@@ -43,6 +43,7 @@ class Identity::ReviewerSignInTest < ActiveSupport::TestCase
     configure email_address: @identity.email_address, code_digest: Identity::ReviewerSignIn.digest("")
 
     assert_nil Identity::ReviewerSignIn.authenticate(email_address: @identity.email_address, code: "")
+    assert_nil Identity::ReviewerSignIn.authenticate(email_address: @identity.email_address, code: "!!-- ")
     assert_nil Identity::ReviewerSignIn.authenticate(email_address: "", code: @code)
   end
 
