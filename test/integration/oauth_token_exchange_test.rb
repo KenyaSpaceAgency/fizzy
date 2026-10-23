@@ -71,6 +71,19 @@ class OauthTokenExchangeTest < ActionDispatch::IntegrationTest
     assert_response :unauthorized
   end
 
+  test "a subject about to expire is refused rather than traded for a token that dies in flight" do
+    @subject.update_columns expires_at: (Oauth::TokenDelegation::MINIMUM_SUBJECT_LIFETIME - 1.second).from_now
+
+    exchange
+    assert_invalid_grant "Subject token is not valid"
+
+    @subject.update_columns expires_at: (Oauth::TokenDelegation::MINIMUM_SUBJECT_LIFETIME + 5.seconds).from_now
+
+    exchange
+    assert_response :success
+    assert_operator response.parsed_body["expires_in"], :>, 0
+  end
+
   test "the token lives no longer than the subject" do
     @subject.update_columns expires_at: 90.seconds.from_now
 

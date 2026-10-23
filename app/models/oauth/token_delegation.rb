@@ -35,6 +35,13 @@ class Oauth::TokenDelegation
   # even if the sweep and the use-time check both missed it.
   TTL_CAP = 300.seconds
 
+  # A subject with less left than this is refused as expired, rather than
+  # traded for a token that would die in flight: the lock, insert and
+  # response could floor its expires_in to 0, which the server can't use and
+  # retries as an outage. Refused, the server's client refreshes the subject
+  # instead. Ten seconds is the skew the server retires tokens early by.
+  MINIMUM_SUBJECT_LIFETIME = 10.seconds
+
   # A refusal carries the OAuth error the endpoint answers with.
   class Refusal < StandardError
     attr_reader :error
@@ -146,7 +153,7 @@ class Oauth::TokenDelegation
         "unknown"
       elsif subject.delegated?
         "delegated"
-      elsif subject.expired? || subject.expires_at.nil? || subject.expires_at < 1.second.from_now
+      elsif subject.expires_at.nil? || subject.expires_at < MINIMUM_SUBJECT_LIFETIME.from_now
         "expired"
       elsif subject.lapsed?
         "lapsed"
