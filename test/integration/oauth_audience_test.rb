@@ -214,6 +214,89 @@ class OauthAudienceTest < ActionDispatch::IntegrationTest
     assert_equal "access_denied", redirect_params["error"]
   end
 
+  test "a resource repeated in a multipart token request is invalid_target" do
+    sign_in_as :david
+    code = consent_code(resource: MCP_RESOURCE, account_id: accounts("37s").id)
+
+    assert_no_difference "Identity::AccessToken.count" do
+      untenanted do
+        post oauth_token_path, **multipart(redeem_fields(code), resource: [ "http://www.example.com/", MCP_RESOURCE ])
+      end
+    end
+
+    assert_response :bad_request
+    assert_equal "invalid_target", response.parsed_body["error"]
+  end
+
+  test "a resource repeated in a multipart refresh is invalid_target" do
+    grant = identities(:david).access_tokens.create!(oauth_client: @client, audience: MCP_RESOURCE, account_id: accounts("37s").id)
+
+    untenanted do
+      post oauth_token_path, **multipart({ grant_type: "refresh_token", client_id: @client.client_id, refresh_token: grant.raw_refresh_token },
+        resource: [ "http://www.example.com/", MCP_RESOURCE ])
+    end
+
+    assert_response :bad_request
+    assert_equal "invalid_target", response.parsed_body["error"]
+  end
+
+  test "a resource repeated as a JSON key is invalid_target, not the last one named" do
+    sign_in_as :david
+    code = consent_code(resource: MCP_RESOURCE, account_id: accounts("37s").id)
+    json = redeem_fields(code).to_json.delete_suffix("}") + %(,"resource":"http://www.example.com/","resource":"#{MCP_RESOURCE}"})
+
+    assert_no_difference "Identity::AccessToken.count" do
+      untenanted do
+        post oauth_token_path, params: json, headers: { "CONTENT_TYPE" => "application/json" }
+      end
+    end
+
+    assert_response :bad_request
+    assert_equal "invalid_target", response.parsed_body["error"]
+  end
+
+  test "a resource in a multipart consent is invalid_target, however many times it's named" do
+    sign_in_as :david
+
+    [ [ MCP_RESOURCE ], [ "http://www.example.com/", MCP_RESOURCE ] ].each do |resources|
+      untenanted do
+        post oauth_authorization_path, **multipart(consent_params(account_id: accounts("37s").id), resource: resources)
+      end
+
+      assert_response :redirect
+      assert_equal "invalid_target", redirect_params["error"]
+    end
+  end
+
+  test "a resource in a multipart body of an authorization request is invalid_target" do
+    sign_in_as :david
+    request = multipart({}, resource: [ MCP_RESOURCE ])
+
+    untenanted do
+      get "#{new_oauth_authorization_path}?#{consent_params(resource: "http://www.example.com/").to_query}",
+        env: { "CONTENT_TYPE" => request[:headers]["CONTENT_TYPE"], "rack.input" => StringIO.new(request[:params]) }
+    end
+
+    assert_response :redirect
+    assert_equal "invalid_target", redirect_params["error"]
+  end
+
+  test "a resource sent once in a JSON or form body still redeems" do
+    sign_in_as :david
+
+    untenanted do
+      post oauth_token_path, params: redeem_fields(consent_code(resource: MCP_RESOURCE, account_id: accounts("37s").id)).merge(resource: MCP_RESOURCE).to_json,
+        headers: { "CONTENT_TYPE" => "application/json" }
+    end
+    assert_response :success
+
+    untenanted do
+      post oauth_token_path, params: redeem_fields(consent_code(resource: MCP_RESOURCE, account_id: accounts("37s").id)).merge(resource: MCP_RESOURCE).to_query,
+        headers: { "CONTENT_TYPE" => "application/x-www-form-urlencoded" }
+    end
+    assert_response :success
+  end
+
   test "a code for an account the person has since left doesn't redeem" do
     sign_in_as :david
     code = consent_code(resource: MCP_RESOURCE, account_id: accounts(:initech).id)
@@ -342,6 +425,20 @@ class OauthAudienceTest < ActionDispatch::IntegrationTest
       assert_response :success
       @token_response = response.parsed_body
       Identity::AccessToken.find_by_raw_token(@token_response["access_token"])
+    end
+
+    def redeem_fields(code)
+      { grant_type: "authorization_code", client_id: @client.client_id, code: code,
+        redirect_uri: @client.redirect_uris.first, code_verifier: CODE_VERIFIER }
+    end
+
+    # A multipart/form-data body naming each field once, and resource once per value.
+    def multipart(fields, resource:)
+      boundary = "LaneBBoundary"
+      parts = fields.map { |name, value| [ name.to_s, value.to_s ] } + resource.map { |value| [ "resource", value ] }
+      body = parts.map { |name, value| "--#{boundary}\r\nContent-Disposition: form-data; name=\"#{name}\"\r\n\r\n#{value}\r\n" }.join + "--#{boundary}--\r\n"
+
+      { params: body, headers: { "CONTENT_TYPE" => "multipart/form-data; boundary=#{boundary}" } }
     end
 
     def redirect_params

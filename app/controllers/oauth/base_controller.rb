@@ -52,19 +52,38 @@ class Oauth::BaseController < ApplicationController
       params[:resource]
     end
 
-    # Rack keeps only the last of a repeated bare key, so resource=a&resource=b
-    # reaches params as b alone. Repeats are counted in the raw query and form
-    # body, where they're still visible. A JSON body can't repeat a key.
+    # A resource may arrive in the query string, and in a form-urlencoded or
+    # JSON body. Rack and the JSON parser each keep only the last of a repeated
+    # key, so resource=a&resource=b reaches params as b alone: repeats are
+    # counted in the request as sent. No other body is read for one. A
+    # multipart body can't be counted that way, so one naming a resource at all
+    # is refused, as is a body naming one that can't be read.
     def single_resource?
       (resource_param.nil? || resource_param.is_a?(String)) && raw_resource_count <= 1
     end
 
     def raw_resource_count
-      [ request.query_string, (request.raw_post if request.form_data?) ].compact.sum do |encoded|
-        URI.decode_www_form(encoded).count { |name, _| name == "resource" }
-      rescue ArgumentError
+      encoded_resource_count(request.query_string) + body_resource_count
+    end
+
+    def body_resource_count
+      if !request.request_parameters.key?("resource")
         0
+      elsif request.content_mime_type == Mime[:url_encoded_form]
+        encoded_resource_count(request.raw_post)
+      elsif request.content_mime_type == Mime[:json]
+        JSON.parse(request.raw_post, allow_duplicate_key: false) && 1
+      else
+        2
       end
+    rescue JSON::ParserError
+      2
+    end
+
+    def encoded_resource_count(encoded)
+      URI.decode_www_form(encoded.to_s).count { |name, _| name == "resource" }
+    rescue ArgumentError
+      2
     end
 
     def service_resource?(resource)
