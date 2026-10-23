@@ -52,8 +52,19 @@ class Oauth::BaseController < ApplicationController
       params[:resource]
     end
 
+    # Rack keeps only the last of a repeated bare key, so resource=a&resource=b
+    # reaches params as b alone. Repeats are counted in the raw query and form
+    # body, where they're still visible. A JSON body can't repeat a key.
     def single_resource?
-      resource_param.nil? || resource_param.is_a?(String)
+      (resource_param.nil? || resource_param.is_a?(String)) && raw_resource_count <= 1
+    end
+
+    def raw_resource_count
+      [ request.query_string, (request.raw_post if request.form_data?) ].compact.sum do |encoded|
+        URI.decode_www_form(encoded).count { |name, _| name == "resource" }
+      rescue ArgumentError
+        0
+      end
     end
 
     def service_resource?(resource)

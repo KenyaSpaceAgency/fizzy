@@ -149,7 +149,7 @@ class Oauth::AuthorizationsController < Oauth::BaseController
         @accounts = Current.identity.users_with_active_accounts.map(&:account).sort_by { |account| account.name.to_s.downcase }
 
         if @accounts.empty?
-          render_error "access_denied", "You have no account to connect"
+          redirect_with_error "access_denied", "You have no account to connect"
         end
       end
     end

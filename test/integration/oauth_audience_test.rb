@@ -157,13 +157,52 @@ class OauthAudienceTest < ActionDispatch::IntegrationTest
     assert_select "code", text: "invalid_request"
   end
 
-  test "consent for the MCP resource is refused to someone with no account to connect" do
+  test "consent for the MCP resource tells the client no for someone with no account to connect" do
     sign_in_as Identity.create!(email_address: "nobody@example.com")
+
+    get_consent resource: MCP_RESOURCE
+
+    assert_response :redirect
+    assert_equal "access_denied", redirect_params["error"]
+  end
+
+  test "an unvetted client is shown, not sent, that there's no account to connect" do
+    sign_in_as Identity.create!(email_address: "nobody@example.com")
+    @client = Oauth::Client.create!(name: "Hosted", redirect_uris: %w[ https://connector.example.com/callback ], scopes: %w[ read write ], dynamically_registered: true)
 
     get_consent resource: MCP_RESOURCE
 
     assert_response :bad_request
     assert_select "code", text: "access_denied"
+  end
+
+  test "a resource repeated as a bare key is invalid_target, not the last one named" do
+    sign_in_as :david
+
+    untenanted do
+      get "#{new_oauth_authorization_path}?#{consent_params.to_query}&resource=#{CGI.escape(MCP_RESOURCE)}&resource=#{CGI.escape("http://www.example.com/")}"
+    end
+
+    assert_response :redirect
+    assert_equal "invalid_target", redirect_params["error"]
+  end
+
+  test "a resource repeated as a bare key in a token request's form body is invalid_target" do
+    sign_in_as :david
+    code = consent_code(resource: MCP_RESOURCE, account_id: accounts("37s").id)
+
+    body = { grant_type: "authorization_code", client_id: @client.client_id, code: code,
+      redirect_uri: @client.redirect_uris.first, code_verifier: CODE_VERIFIER }.to_query
+    body += "&resource=#{CGI.escape("http://www.example.com/")}&resource=#{CGI.escape(MCP_RESOURCE)}"
+
+    assert_no_difference "Identity::AccessToken.count" do
+      untenanted do
+        post oauth_token_path, params: body, headers: { "CONTENT_TYPE" => "application/x-www-form-urlencoded" }
+      end
+    end
+
+    assert_response :bad_request
+    assert_equal "invalid_target", response.parsed_body["error"]
   end
 
   test "denying an audienced request tells the client no, even with no account to connect" do
