@@ -7,14 +7,20 @@
 class Oauth::Authorizations::SwitchesController < Oauth::AuthorizationsController
   AUTHORIZATION_PARAMS = %i[ client_id redirect_uri response_type scope state code_challenge code_challenge_method ]
 
+  # A request too long to keep in the session can't be resumed, so the person
+  # stays signed in rather than signing out to nowhere.
   def create
     return_to = new_oauth_authorization_url(script_name: nil, **authorization_params)
 
-    terminate_session
-    reset_session
-    session[:return_to_after_authenticating] = return_to if return_to.bytesize <= RETURN_URL_MAXIMUM_LENGTH
+    if return_to.bytesize <= RETURN_URL_MAXIMUM_LENGTH
+      terminate_session
+      reset_session
+      session[:return_to_after_authenticating] = return_to
 
-    redirect_to_login_url
+      redirect_to_login_url
+    else
+      render_error "invalid_request", "This request is too long to pick up again after switching. Sign out, sign in as the right person, then connect from the app again."
+    end
   end
 
   private

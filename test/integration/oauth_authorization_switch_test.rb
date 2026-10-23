@@ -48,6 +48,18 @@ class OauthAuthorizationSwitchTest < ActionDispatch::IntegrationTest
     end
 
     assert_response :bad_request
+    assert_select "code", text: "invalid_request"
+    assert_nil session[:return_to_after_authenticating]
+  end
+
+  test "a request too long to resume is refused before signing out" do
+    assert_no_difference -> { identities(:david).sessions.count } do
+      post_switch authorization_params(state: "x" * 2048)
+    end
+
+    assert_response :bad_request
+    assert_select "p", text: /too long to pick up again/
+    assert cookies[:session_token].present?
     assert_nil session[:return_to_after_authenticating]
   end
 

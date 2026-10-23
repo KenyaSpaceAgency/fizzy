@@ -57,7 +57,9 @@ class OauthFlowTest < ActionDispatch::IntegrationTest
     end
 
     assert_response :bad_request
-    assert_equal "invalid_request", response.parsed_body["error"]
+    assert_select "h2", text: "Can't authorize this app"
+    assert_select "p", text: "Unknown client"
+    assert_select "code", text: "invalid_request"
   end
 
   test "authorization rejects mismatched redirect_uri" do
