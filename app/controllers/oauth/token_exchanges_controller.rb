@@ -55,9 +55,9 @@ class Oauth::TokenExchangesController < Oauth::BaseController
     end
 
     # RFC 8693 §2.1 sends the request form-urlencoded, as fizzy-mcp-server
-    # does, and only that body is accepted. It's also the one in which
-    # single_resource? can see every resource the request names: a multipart
-    # body hides repeats from that count as surely as Rack's params do.
+    # does, and only that body is accepted. Repeated resources are
+    # single_resource?'s to refuse, in whatever body; this keeps the exchange
+    # to the one encoding its one client sends.
     def require_form_body
       unless request.media_type == "application/x-www-form-urlencoded"
         oauth_error "invalid_request", "Token exchange requests must be application/x-www-form-urlencoded"
