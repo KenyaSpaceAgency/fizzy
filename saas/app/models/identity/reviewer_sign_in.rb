@@ -29,11 +29,14 @@ module Identity::ReviewerSignIn
       end
     end
 
-    # Ends every session the configured identity has, however it signed in, and
-    # closes its open Action Cable connections. Run
+    # Ends every session the configured identity has, however it signed in,
+    # closes its open Action Cable connections, and removes the access tokens
+    # and passkeys a code holder could have added to get back in. Run
     # it when rotating the code, so sessions started with the old one end too.
     def sign_out_everywhere
       if configured? && identity = Identity.find_by(email_address: configured_email_address)
+        identity.access_tokens.destroy_all
+        identity.passkeys.destroy_all
         identity.sessions.destroy_all.size.tap { identity.close_remote_connections }
       else
         0
