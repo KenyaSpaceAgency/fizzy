@@ -20,15 +20,20 @@ class Sessions::ReviewerSignInTest < ActionDispatch::IntegrationTest
   end
 
   test "each use of the code is in the request's structured log" do
+    lines = []
+    Rails.application.config.structured_logging.logger.stubs(:info).with { |line| lines << line }
+
     untenanted do
       post session_path, params: { email_address: @reviewer.email_address }
-
-      ActionController::Base.logger.stubs(:struct)
-      ActionController::Base.logger.expects(:struct).with(authentication: { reviewer_sign_in: { identity: { id: @reviewer.id } } }).once
       post session_magic_link_url, params: { code: @code }
 
       assert cookies[:session_token].present?
     end
+
+    used = lines.select { |line| line.include?("reviewer_sign_in") }
+    assert_equal 1, used.size
+    assert_equal @reviewer.id, JSON.parse(used.first).dig("authentication", "reviewer_sign_in", "identity", "id")
+    assert lines.none? { |line| line.include?(@code) }
   end
 
   test "the reviewer's emailed code still works" do
