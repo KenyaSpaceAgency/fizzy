@@ -4,7 +4,7 @@ require "test_helper"
 # endpoint. Its wire contract is bc3's (doc/oauth/mcp_token_delegation.md),
 # which fizzy-mcp-server's exchange client is built against.
 class OauthTokenExchangeTest < ActionDispatch::IntegrationTest
-  include OauthAvailabilityTestHelper, OauthClientCredentialsTestHelper
+  include OauthAvailabilityTestHelper, OauthClientCredentialsTestHelper, DnsTestHelper
 
   RESOURCE = "https://mcp.example.com/mcp"
   GRANT_TYPE = "urn:ietf:params:oauth:grant-type:token-exchange"
@@ -307,6 +307,31 @@ class OauthTokenExchangeTest < ActionDispatch::IntegrationTest
 
     exchange
     assert_invalid_grant "Subject token is not valid"
+  end
+
+  test "what a delegated token sets up is the connected app's, and goes with it on disconnect" do
+    stub_web_push_dns_resolution
+    subject = identities(:kevin).access_tokens.create! \
+      oauth_client: oauth_clients(:mcp_client), permission: :write, audience: RESOURCE, account: accounts("37s")
+    exchange subject_token: subject.raw_token
+    delegated = { "HTTP_AUTHORIZATION" => "Bearer #{response.parsed_body["access_token"]}" }
+
+    post board_webhooks_path(boards(:writebook)), params: { webhook: { name: "MCP feed", url: "https://mcp.example.com/hooks" } }, env: delegated, as: :json
+    assert_response :created
+    webhook = Webhook.find(response.parsed_body["id"])
+    assert_equal oauth_clients(:mcp_client), webhook.created_via
+    assert_includes Webhook.set_up_through(oauth_clients(:mcp_client), identity: identities(:kevin)), webhook
+
+    post user_push_subscriptions_path(users(:kevin)), env: delegated, as: :json,
+      params: { push_subscription: { endpoint: "https://fcm.googleapis.com/fcm/send/mcp-device", p256dh_key: "p256dh", auth_key: "auth" } }
+    assert_equal oauth_clients(:mcp_client), Push::Subscription.find_by!(endpoint: "https://fcm.googleapis.com/fcm/send/mcp-device").oauth_client
+
+    sign_in_as :kevin
+    delete my_connected_app_path(oauth_clients(:mcp_client)), params: { remove_webhooks: "1", webhook_ids: [ webhook.id ] }
+
+    assert_not Webhook.exists?(webhook.id)
+    assert_not Push::Subscription.exists?(endpoint: "https://fcm.googleapis.com/fcm/send/mcp-device")
+    assert_not Identity::AccessToken.delegated.where(delegated_from: subject).exists?
   end
 
   test "Connected Apps lists the subject grant, never the delegated tokens" do

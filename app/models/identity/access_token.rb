@@ -227,6 +227,15 @@ class Identity::AccessToken < ApplicationRecord
     delegated_from_id?
   end
 
+  # The app this token acts for, the one a person connected and sees in
+  # Connected Apps. A delegated token is issued to the MCP server's client,
+  # but acts for the app whose grant it was delegated from, so what it sets
+  # up (webhooks, push subscriptions) is that app's, listed and removed with
+  # it when the person disconnects it.
+  def app
+    delegated? ? delegated_from&.oauth_client : oauth_client
+  end
+
   # An audienced grant was issued for another protected resource (the hosted
   # MCP server), named at consent by the RFC 8707 resource parameter. It's
   # that resource's credential, never Fizzy's API's: the API refuses it, and
