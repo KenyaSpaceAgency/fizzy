@@ -14,7 +14,9 @@
 # code (80 bits) and its digest. Rotate the code after each review.
 #
 # For that one identity the code is the only gate, so its security is exactly
-# the code's. Keep the identity in its own comped, internal account.
+# the code's. Keep the identity in its own comped, internal account. Rotate by
+# generating a new code, replacing the digest, then running
+# `bin/rails saas:reviewer_sign_in:sign_out` to end the old code's sessions.
 module Identity::ReviewerSignIn
   CODE_LENGTH = 16
 
@@ -24,6 +26,16 @@ module Identity::ReviewerSignIn
         Identity.find_by(email_address: configured_email_address).tap do |identity|
           record_use(identity) if identity
         end
+      end
+    end
+
+    # Ends every session the configured identity has, however it signed in. Run
+    # it when rotating the code, so sessions started with the old one end too.
+    def sign_out_everywhere
+      if configured? && identity = Identity.find_by(email_address: configured_email_address)
+        identity.sessions.destroy_all.size
+      else
+        0
       end
     end
 

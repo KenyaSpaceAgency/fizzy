@@ -7,5 +7,10 @@ namespace :saas do
       puts "Code (give to reviewers; keep in 1Password, not in config): #{code}"
       puts "FIZZY_REVIEWER_SIGN_IN_CODE_DIGEST=#{Identity::ReviewerSignIn.digest(code)}"
     end
+
+    desc "End every session of the configured reviewer identity (run after rotating the code)"
+    task sign_out: :environment do
+      puts "Ended #{Identity::ReviewerSignIn.sign_out_everywhere} reviewer session(s)"
+    end
   end
 end

@@ -54,6 +54,23 @@ class Identity::ReviewerSignInTest < ActiveSupport::TestCase
     assert_equal code, MagicLink::Code.sanitize(code)
   end
 
+  test "signs the configured identity out everywhere, and no one else" do
+    @identity.sessions.create!
+    other_sessions = identities(:jason).sessions.count
+
+    assert_operator Identity::ReviewerSignIn.sign_out_everywhere, :>, 0
+    assert_empty @identity.sessions.reload
+    assert_equal other_sessions, identities(:jason).sessions.count
+  end
+
+  test "signing out does nothing when unconfigured" do
+    configure email_address: nil, code_digest: nil
+
+    assert_no_difference -> { Session.count } do
+      assert_equal 0, Identity::ReviewerSignIn.sign_out_everywhere
+    end
+  end
+
   private
     def configure(email_address:, code_digest:)
       Rails.application.config.x.reviewer_sign_in.email_address = email_address
