@@ -231,6 +231,24 @@ class OauthTokenExchangeTest < ActionDispatch::IntegrationTest
     assert_oauth_error "invalid_target", "resource does not match the subject token's account"
   end
 
+  test "several resources at once are invalid_target, even when the last names Fizzy's API" do
+    body = URI.encode_www_form \
+      grant_type: GRANT_TYPE, subject_token: @subject.raw_token, subject_token_type: ACCESS_TOKEN_TYPE,
+      client_id: @client.client_id, client_secret: @secret
+    body += "&" + URI.encode_www_form([ [ "resource", RESOURCE ], [ "resource", "http://www.example.com" ] ])
+
+    assert_no_difference -> { Identity::AccessToken.delegated.count } do
+      untenanted do
+        post oauth_token_path, params: body, headers: { "Content-Type" => "application/x-www-form-urlencoded" }
+      end
+    end
+
+    assert_oauth_error "invalid_target", "Only one resource may be named"
+
+    exchange resource: [ "http://www.example.com" ]
+    assert_oauth_error "invalid_target", "Only one resource may be named"
+  end
+
   test "ending the subject grant sweeps its delegated tokens" do
     exchange
     delegated = response.parsed_body["access_token"]

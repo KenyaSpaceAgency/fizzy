@@ -72,8 +72,10 @@ class Oauth::TokenExchangesController < Oauth::BaseController
         oauth_error "invalid_request", "Only access_token subject_token_type supported"
       elsif params.key?(:requested_token_type) && params[:requested_token_type] != Oauth::TokenDelegation::ACCESS_TOKEN_TYPE
         oauth_error "invalid_request", "Only access_token requested_token_type supported"
-      elsif !scalar_param?(:scope) || !scalar_param?(:resource)
-        oauth_error "invalid_request", "scope and resource must each be a single string"
+      elsif !scalar_param?(:scope)
+        oauth_error "invalid_request", "scope must be a single string"
+      elsif !single_resource?
+        oauth_error "invalid_target", "Only one resource may be named"
       end
     end
 
