@@ -33,8 +33,9 @@ module Identity::ReviewerSignIn
     # closes its open Action Cable connections, and removes the access tokens
     # and passkeys a code holder could have added to get back in. Run
     # it when rotating the code, so sessions started with the old one end too.
+    # It needs only the email, so it still works after the digest is cleared.
     def sign_out_everywhere
-      if configured? && identity = Identity.find_by(email_address: configured_email_address)
+      if configured_email_address.present? && identity = Identity.find_by(email_address: configured_email_address)
         identity.access_tokens.destroy_all
         identity.passkeys.destroy_all
         identity.sessions.destroy_all.size.tap { identity.close_remote_connections }
@@ -64,7 +65,6 @@ module Identity::ReviewerSignIn
       end
 
       def record_use(identity)
-        Rails.logger.warn "[ReviewerSignIn] Signed in identity #{identity.id} with the reviewer code"
         Sentry.capture_message "Reviewer sign-in code used", level: :info if defined?(Sentry)
       end
 

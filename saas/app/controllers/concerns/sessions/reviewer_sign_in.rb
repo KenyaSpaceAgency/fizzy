@@ -5,6 +5,7 @@ module Sessions::ReviewerSignIn
   private
     def invalid_code
       if identity = Identity::ReviewerSignIn.authenticate(email_address: email_address_pending_authentication, code: code)
+        logger.struct(authentication: { reviewer_sign_in: { identity: { id: identity.id } } })
         sign_in MagicLink.new(identity: identity, purpose: :sign_in)
       else
         super

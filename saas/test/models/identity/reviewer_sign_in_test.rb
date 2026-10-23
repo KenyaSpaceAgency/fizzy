@@ -69,6 +69,14 @@ class Identity::ReviewerSignInTest < ActiveSupport::TestCase
     assert_equal other_sessions, identities(:jason).sessions.count
   end
 
+  test "signing out still works after the digest is cleared" do
+    @identity.sessions.create!
+    configure email_address: @identity.email_address, code_digest: nil
+
+    assert_operator Identity::ReviewerSignIn.sign_out_everywhere, :>, 0
+    assert_empty @identity.sessions.reload
+  end
+
   test "signing out does nothing when unconfigured" do
     configure email_address: nil, code_digest: nil
 
