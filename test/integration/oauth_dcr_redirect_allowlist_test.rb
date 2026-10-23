@@ -65,6 +65,7 @@ class OauthDcrRedirectAllowlistTest < ActionDispatch::IntegrationTest
     end
     assert_response :success
     assert_includes response.headers["Content-Security-Policy"], "cursor:"
+    assert_select "strong", text: "cursor://anysphere.cursor-mcp"
 
     untenanted do
       post oauth_authorization_path, params: {
@@ -83,6 +84,27 @@ class OauthDcrRedirectAllowlistTest < ActionDispatch::IntegrationTest
     assert_equal "cursor", location.scheme
     assert_equal "anysphere.cursor-mcp", location.host
     assert Rack::Utils.parse_query(location.query)["code"].present?
+  end
+
+  test "an app scheme naming a loopback host gets no pre-consent redirect" do
+    sign_in_as :david
+    register "cursor://localhost/callback"
+    assert_response :created
+    client = Oauth::Client.find_by!(client_id: response.parsed_body["client_id"])
+
+    untenanted do
+      get new_oauth_authorization_path, params: {
+        client_id: client.client_id,
+        redirect_uri: "cursor://localhost/callback",
+        response_type: "code",
+        code_challenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+        code_challenge_method: "plain",
+        scope: "read"
+      }
+    end
+
+    assert_response :bad_request
+    assert_nil response.location
   end
 
   test "a client registered before its host left the allowlist still authorizes" do

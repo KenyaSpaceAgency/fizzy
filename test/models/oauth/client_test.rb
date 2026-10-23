@@ -79,7 +79,8 @@ class Oauth::ClientTest < ActiveSupport::TestCase
 
   test "dynamically registered clients reject other app schemes and malformed app redirects" do
     %w[ com.example.app://callback z39.50r://host/db iris.beep://host/x javascript://x/%0aalert(1) vscode://callback
-        cursor:callback cursor://user@anysphere.cursor-mcp/oauth/callback cursor://anysphere.cursor-mcp/oauth/callback#frag cursor: ].each do |uri|
+        cursor:callback cursor:/callback cursor:///callback cursor://user@anysphere.cursor-mcp/oauth/callback cursor://anysphere.cursor-mcp/oauth/callback#frag cursor:
+        cursor://%65vil/callback ].each do |uri|
       assert_not Oauth::Client.new(name: "App", redirect_uris: [ uri ], dynamically_registered: true).valid?, uri
     end
   end

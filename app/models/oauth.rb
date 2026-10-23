@@ -88,11 +88,10 @@ module Oauth
   end
 
   # Hierarchical (cursor://host/path, never the opaque cursor:path, which
-  # can't carry the callback's query), with no userinfo, and naming a host
-  # or a path.
+  # can't carry the callback's query), with no userinfo, and naming a plain
+  # host, which consent shows as where the code goes.
   def self.private_use_redirect?(uri)
-    uri.opaque.nil? && uri.userinfo.nil? && (uri.host.present? || uri.path.present?) && \
-      (uri.host.blank? || plain_host?(uri.host))
+    uri.opaque.nil? && uri.userinfo.nil? && plain_host?(uri.host.to_s)
   end
 
   # A remote https redirect a registration may add: an allowlisted host.

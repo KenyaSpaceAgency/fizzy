@@ -134,8 +134,11 @@ class Oauth::Client < ApplicationRecord
       errors.add :redirect_uris, "includes an invalid URI"
     end
 
+    # http only: an app scheme naming a loopback host (cursor://localhost) is
+    # dispatched to an app, not served on loopback (RFC 8252 §7.3).
     def loopback_uri?(uri)
-      Oauth.loopback_host?(URI.parse(uri).host)
+      parsed = URI.parse(uri)
+      parsed.scheme&.downcase == "http" && Oauth.loopback_host?(parsed.host)
     rescue URI::InvalidURIError
       false
     end
