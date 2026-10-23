@@ -23,11 +23,10 @@
       <strong><%= oauth_access_label(permission) %></strong>, in every account you belong to
     </p>
 
-    <%# updated_at moves each time the app renews its access, so it's the last
-        time the app was active, to within an access token's lifetime %>
+    <%# updated_at moves each time the app renews its access %>
     <p class="txt-x-small txt-subtle margin-none">
       Connected <%= local_datetime_tag tokens.map(&:created_at).min, style: :date %>
-      &middot; last active <%= local_datetime_tag tokens.map(&:updated_at).max, style: :daysago %>
+      &middot; access last renewed <%= local_datetime_tag tokens.map(&:updated_at).max, style: :daysago %>
       <% if tokens.many? %>&middot; <%= pluralize(tokens.size, "connection") %><% end %>
     </p>
   </div>

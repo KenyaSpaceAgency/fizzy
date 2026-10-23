@@ -87,6 +87,7 @@ class My::ConnectedAppsControllerTest < ActionDispatch::IntegrationTest
     assert_select "#connected_apps_web + .connected-app, #connected_apps_web ~ .connected-app", text: /Confidential Connector.*Read and write/m
     assert_select "#connected_apps_local ~ .connected-app", text: /Test MCP Client.*Name set by an app on your device.*Read only/m
     assert_select "#connected_apps_fizzy", count: 0
+    assert_select ".connected-app", text: /access last renewed/
   end
 
   test "index names where a self-registered web app's access goes" do

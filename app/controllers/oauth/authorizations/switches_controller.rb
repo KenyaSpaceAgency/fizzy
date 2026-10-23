@@ -1,0 +1,24 @@
+# "Not you?" on the consent screen. Signs the person out, then brings whoever
+# signs in next back to the same authorization request. The request is rebuilt
+# from its parameters once they have passed every check the consent screen's
+# did, never taken as a URL, so the only place this can return anyone to is
+# consent for that request. The account choice isn't carried: it was the
+# signed-out identity's.
+class Oauth::Authorizations::SwitchesController < Oauth::AuthorizationsController
+  AUTHORIZATION_PARAMS = %i[ client_id redirect_uri response_type scope state code_challenge code_challenge_method ]
+
+  def create
+    return_to = new_oauth_authorization_url(script_name: nil, **authorization_params)
+
+    terminate_session
+    reset_session
+    session[:return_to_after_authenticating] = return_to if return_to.bytesize <= RETURN_URL_MAXIMUM_LENGTH
+
+    redirect_to_login_url
+  end
+
+  private
+    def authorization_params
+      params.permit(*AUTHORIZATION_PARAMS).to_h.symbolize_keys
+    end
+end

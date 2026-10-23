@@ -9,9 +9,14 @@
 <article class="oauth-consent panel panel--wide shadow center txt-align-start">
   <%= render "oauth/authorizations/client", client: @client, identity: identity, redirect_host: redirect_host %>
 
-  <p class="oauth-consent__identity txt-small txt-subtle margin-none">
-    Signed in as <strong><%= Current.identity.email_address %></strong>
-  </p>
+  <%# Not you? signs out and returns whoever signs in to this same request %>
+  <div class="oauth-consent__identity flex align-center gap-half txt-small txt-subtle">
+    <span>Signed in as <strong><%= Current.identity.email_address %></strong></span>
+    <%= button_to "Not you?", oauth_authorization_switch_path,
+          params: { client_id: @client.client_id, redirect_uri: @redirect_uri, response_type: "code", scope: @scope,
+            state: @state, code_challenge: @code_challenge, code_challenge_method: "S256" }.compact,
+          class: "btn btn--plain txt-link txt-small", form: { data: { turbo: false } } %>
+  </div>
 
   <%= form_with url: oauth_authorization_path, method: :post, data: { turbo: false }, html: { class: "flex flex-column gap" } do |f| %>
     <%= f.hidden_field :client_id, value: @client.client_id %>
