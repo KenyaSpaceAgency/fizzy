@@ -93,7 +93,7 @@ class Account::DataTransfer::RecordSetTest < ActiveSupport::TestCase
       "updated_at" => Time.current.iso8601
     }
 
-    record_set = Account::DataTransfer::RecordSet.new(account: importing_account, model: Webhook)
+    record_set = Account::DataTransfer::Manifest.new(importing_account).to_enum(:each_record_set).find { it.model == Webhook }
 
     error = assert_raises(Account::DataTransfer::RecordSet::ConflictError) do
       record_set.check(from: build_reader(dir: "webhooks", data: webhook_data))

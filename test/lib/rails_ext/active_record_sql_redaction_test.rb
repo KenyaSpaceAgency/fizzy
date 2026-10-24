@@ -21,6 +21,11 @@ class ActiveRecordSqlRedactionTest < ActiveSupport::TestCase
     "audits1984_auditor_tokens.token_digest" => "a digest; the token itself isn't stored",
     "board_publications.key" => "a published board's public link, which is in its URL path anyway",
     "filters.params_digest" => "a digest of the filter's parameters",
+    "oauth_clients.client_secret_digest" => "a digest; the secret itself isn't stored",
+    "oauth_clients.token_endpoint_auth_method" => "names how a client authenticates: none, client_secret_basic or client_secret_post",
+    "oauth_retired_refresh_tokens.access_token_id" => "a row id",
+    "oauth_retired_refresh_tokens.refresh_token_digest" => "a digest; the token itself isn't stored",
+    "oauth_retired_refresh_tokens.successor_refresh_token_digest" => "a digest; the token itself isn't stored",
     "push_subscriptions.auth_key" => "Web Push accepts a message only when it is signed with our VAPID key",
     "push_subscriptions.p256dh_key" => "a public key"
   }
@@ -49,7 +54,7 @@ class ActiveRecordSqlRedactionTest < ActiveSupport::TestCase
   test "an access token is absent from its logged insert and lookup" do
     log, executed = capture do
       access_token = identities(:kevin).access_tokens.create!(token: TOKEN, permission: "write")
-      assert_equal identities(:kevin), Identity.find_by_permissable_access_token(TOKEN, method: "POST")
+      assert_equal identities(:kevin), Identity::AccessToken.find_honored(TOKEN)&.identity
       access_token.update!(description: "Made-up script")
     end
 
@@ -139,7 +144,7 @@ class ActiveRecordSqlRedactionTest < ActiveSupport::TestCase
       ActiveSupport::Notifications.subscribe(/active_record/) { |_name, _start, _finish, _id, payload| seen << payload.dup }
     ]
 
-    assert_equal identities(:kevin), Identity.find_by_permissable_access_token(identities(:kevin).access_tokens.create!(token: TOKEN).token, method: "GET")
+    assert_equal identities(:kevin), Identity::AccessToken.find_honored(identities(:kevin).access_tokens.create!(token: TOKEN).token)&.identity
 
     redacted = seen.select { |payload| payload[:sql].to_s.include?("identity_access_tokens") }
     assert redacted.many?

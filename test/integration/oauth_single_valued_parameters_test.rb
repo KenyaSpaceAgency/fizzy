@@ -41,9 +41,9 @@ class OauthSingleValuedParametersTest < ActionDispatch::IntegrationTest
       untenanted { get new_oauth_authorization_path, params: authorize_params(name => value) }
 
       assert_response :redirect, name.to_s
-      query = CGI.parse(URI.parse(response.location).query)
-      assert_equal "invalid_request", query["error"].first, name.to_s
-      assert_match name.to_s, query["error_description"].first
+      query = URI.decode_www_form(URI.parse(response.location).query).to_h
+      assert_equal "invalid_request", query["error"], name.to_s
+      assert_match name.to_s, query["error_description"]
       assert_not query.key?("code")
     end
   end
