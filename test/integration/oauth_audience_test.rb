@@ -43,15 +43,44 @@ class OauthAudienceTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "an unknown resource, or several, is invalid_target" do
+  test "an unknown resource is invalid_target" do
     sign_in_as :david
 
-    [ "https://evil.example.com/mcp", "#{MCP_RESOURCE}/", [ MCP_RESOURCE, MCP_RESOURCE ] ].each do |resource|
+    [ "https://evil.example.com/mcp", "#{MCP_RESOURCE}/" ].each do |resource|
       get_consent resource: resource
 
       assert_response :redirect
       assert_equal "invalid_target", redirect_params["error"]
     end
+  end
+
+  # resource[]= is Rails' list syntax, not RFC 8707's repeated parameter (a
+  # bare key repeated is invalid_target, below), so it's refused as a malformed
+  # parameter by the single-valued check, before any audience is read.
+  test "a resource or account_id sent as a list is invalid_request" do
+    sign_in_as :david
+
+    get_consent resource: [ MCP_RESOURCE, MCP_RESOURCE ]
+    assert_response :redirect
+    assert_equal "invalid_request", redirect_params["error"]
+    assert_match "resource", redirect_params["error_description"]
+
+    post_consent resource: MCP_RESOURCE, account_id: [ accounts(:initech).id ]
+    assert_response :redirect
+    assert_equal "invalid_request", redirect_params["error"]
+    assert_match "account_id", redirect_params["error_description"]
+    assert_nil redirect_params["code"]
+  end
+
+  test "a token request naming resource as a list is invalid_request" do
+    sign_in_as :david
+    code = consent_code(resource: MCP_RESOURCE, account_id: accounts(:initech).id)
+
+    redeem code, resource: [ MCP_RESOURCE ]
+
+    assert_response :bad_request
+    assert_equal "invalid_request", response.parsed_body["error"]
+    assert_match "resource", response.parsed_body["error_description"]
   end
 
   test "no resource is an MCP resource until one is configured" do
