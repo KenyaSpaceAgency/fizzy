@@ -46,6 +46,11 @@ module Fizzy
         app.config.middleware.insert_before ActionDispatch::RemoteIp, TrackTrueClientIp
       end
 
+      initializer "fizzy_saas.reviewer_sign_in" do |app|
+        app.config.x.reviewer_sign_in.email_address = ENV["FIZZY_REVIEWER_SIGN_IN_EMAIL"]
+        app.config.x.reviewer_sign_in.code_digest = ENV["FIZZY_REVIEWER_SIGN_IN_CODE_DIGEST"]
+      end
+
       initializer "fizzy_saas.gvl_instrumentation" do |app|
         app.config.middleware.insert_before(Rack::Runtime, GvlInstrumentation)
       end
@@ -209,6 +214,7 @@ module Fizzy
         ::Identity.include Authorization::Identity, Identity::Devices
         ::Session.include Session::Devices
         ::Signup.prepend Signup
+        Sessions::MagicLinksController.prepend Sessions::ReviewerSignIn
         ApplicationController.include Authorization::Controller
         CardsController.include(Card::StorageLimited::Creation)
         Cards::CommentsController.include(Card::StorageLimited::Commenting)
