@@ -23,25 +23,38 @@ module Identity::ReviewerSignIn
   class << self
     def authenticate(email_address:, code:)
       if matches?(email_address, code)
-        Identity.find_by(email_address: configured_email_address).tap do |identity|
+        configured_identity.tap do |identity|
           record_use(identity) if identity
         end
       end
     end
 
     # Ends every session the configured identity has, however it signed in,
-    # closes its open Action Cable connections, and removes the access tokens
-    # and passkeys a code holder could have added to get back in. Run
-    # it when rotating the code, so sessions started with the old one end too.
-    # It needs only the email, so it still works after the digest is cleared.
+    # closes its open Action Cable connections, and removes the access tokens,
+    # passkeys and pending session transfers a code holder could have added to
+    # get back in. It also resets the join codes of the reviewer's accounts, so
+    # a code holder who read one can't join under an identity of their own.
+    # Run it when rotating the code, so sessions started with the old one end
+    # too. It needs only the email, so it still works after the digest is
+    # cleared.
+    #
+    # The reviewer can't move its users to another email address (see
+    # User::ReviewerEmailAddressLock), so the configured email always finds
+    # the identity and the accounts it signs in to.
     def sign_out_everywhere
-      if configured_email_address.present? && identity = Identity.find_by(email_address: configured_email_address)
+      if identity = configured_identity
         identity.access_tokens.destroy_all
         identity.passkeys.destroy_all
+        identity.transfers.delete_all
+        identity.accounts.each { |account| account.join_code&.reset }
         identity.sessions.destroy_all.size.tap { identity.close_remote_connections }
       else
         0
       end
+    end
+
+    def reviewer?(identity)
+      configured_email_address.present? && identity.present? && identity.email_address == configured_email_address.downcase
     end
 
     def configured?
@@ -66,6 +79,10 @@ module Identity::ReviewerSignIn
 
       def record_use(identity)
         Sentry.capture_message "Reviewer sign-in code used", level: :info if defined?(Sentry)
+      end
+
+      def configured_identity
+        Identity.find_by(email_address: configured_email_address) if configured_email_address.present?
       end
 
       def configured_email_address
