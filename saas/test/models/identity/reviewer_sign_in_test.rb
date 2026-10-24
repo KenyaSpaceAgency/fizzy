@@ -82,6 +82,23 @@ class Identity::ReviewerSignInTest < ActiveSupport::TestCase
     assert_equal other_code, other&.reload&.code
   end
 
+  test "lists the active members of the reviewer's accounts, including one who joined during a review" do
+    account = @identity.accounts.first
+    joiner = account.users.create!(name: "Code holder", identity: Identity.create!(email_address: "code-holder@example.com"), role: :member)
+
+    members = Identity::ReviewerSignIn.members_of_reviewer_accounts
+
+    assert_equal @identity.accounts.sort_by(&:id), members.keys.sort_by(&:id)
+    assert_includes members[account], joiner
+    assert members.values.flatten.all?(&:active?)
+  end
+
+  test "lists no members when unconfigured" do
+    configure email_address: nil, code_digest: nil
+
+    assert_equal({}, Identity::ReviewerSignIn.members_of_reviewer_accounts)
+  end
+
   test "signing out still works after the digest is cleared" do
     @identity.sessions.create!
     configure email_address: @identity.email_address, code_digest: nil

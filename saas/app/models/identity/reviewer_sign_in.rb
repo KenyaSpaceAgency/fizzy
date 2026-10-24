@@ -17,6 +17,10 @@
 # the code's. Keep the identity in its own comped, internal account. Rotate by
 # generating a new code, replacing the digest, then running
 # `bin/rails saas:reviewer_sign_in:sign_out` to end the old code's sessions.
+# That task also lists every active member of the reviewer's accounts: check it
+# after each review and deactivate anyone who isn't the reviewer or the
+# account's own staff, since a code holder could have joined under an identity
+# of their own while the review ran.
 module Identity::ReviewerSignIn
   CODE_LENGTH = 16
 
@@ -50,6 +54,17 @@ module Identity::ReviewerSignIn
         identity.sessions.destroy_all.size.tap { identity.close_remote_connections }
       else
         0
+      end
+    end
+
+    # Every active member of the reviewer's accounts, by account, for the
+    # after-review check: anyone here who isn't the reviewer or the account's
+    # own staff joined during a review and keeps access until deactivated.
+    def members_of_reviewer_accounts
+      if identity = configured_identity
+        identity.accounts.to_h { |account| [ account, account.users.active.includes(:identity).order(:created_at).to_a ] }
+      else
+        {}
       end
     end
 
