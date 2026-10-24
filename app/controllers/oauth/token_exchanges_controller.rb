@@ -21,6 +21,7 @@ class Oauth::TokenExchangesController < Oauth::BaseController
 
   before_action :require_delegation_enabled
   before_action :require_issuance_enabled
+  before_action :require_single_valued_parameters
   before_action :require_form_body
   before_action :authenticate_client
   before_action :require_params
@@ -83,8 +84,6 @@ class Oauth::TokenExchangesController < Oauth::BaseController
         oauth_error "invalid_request", "Only access_token subject_token_type supported"
       elsif params.key?(:requested_token_type) && params[:requested_token_type] != Oauth::TokenDelegation::ACCESS_TOKEN_TYPE
         oauth_error "invalid_request", "Only access_token requested_token_type supported"
-      elsif !scalar_param?(:scope)
-        oauth_error "invalid_request", "scope must be a single string"
       elsif !single_resource?
         oauth_error "invalid_target", "Only one resource may be named"
       end
@@ -92,10 +91,6 @@ class Oauth::TokenExchangesController < Oauth::BaseController
 
     def string_param?(name)
       params[name].is_a?(String) && params[name].present?
-    end
-
-    def scalar_param?(name)
-      !params.key?(name) || params[name].nil? || params[name].is_a?(String)
     end
 
     # Whether the request authenticates a client the exchange is for. Read by

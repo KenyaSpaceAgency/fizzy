@@ -257,9 +257,22 @@ class OauthTokenExchangeTest < ActionDispatch::IntegrationTest
     end
 
     assert_oauth_error "invalid_target", "Only one resource may be named"
+  end
 
-    exchange resource: [ "http://www.example.com" ]
-    assert_oauth_error "invalid_target", "Only one resource may be named"
+  # Rails' name[]= list syntax, unlike a bare key repeated, is refused by the
+  # token endpoint's single-valued check before the client is looked up.
+  test "an exchange parameter sent as a list is invalid_request" do
+    { resource: [ "http://www.example.com" ], scope: [ "read" ], subject_token: [ @subject.raw_token ],
+      subject_token_type: [ ACCESS_TOKEN_TYPE ], requested_token_type: [ ACCESS_TOKEN_TYPE ], audience: [ "x" ] }.each do |name, value|
+      assert_no_difference -> { Identity::AccessToken.delegated.count } do
+        exchange name => value
+      end
+
+      assert_oauth_error "invalid_request", "#{name} must be a single string"
+    end
+
+    exchange params: { client_id: [ @client.client_id ], client_secret: @secret }
+    assert_oauth_error "invalid_request", "client_id must be a single string"
   end
 
   test "only a form-urlencoded body is accepted, so no body can hide a repeated resource" do
