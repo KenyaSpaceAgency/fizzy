@@ -106,12 +106,19 @@ class OauthClientMetadataDocumentsTest < ActionDispatch::IntegrationTest
     untenanted { post oauth_authorization_path, params: authorization }
     assert Oauth::Client.find_presented(URL)
 
-    with_metadata_documents(false) do
-      untenanted { post oauth_authorization_path, params: authorization.merge(client_id: [ URL ]) }
-    end
+    # Refused by the single-valued check before any client lookup, so it
+    # neither becomes an IN list nor gets past the switch.
+    [ false, true ].each do |enabled|
+      with_metadata_documents(enabled) do
+        assert_no_queries_match(/oauth_clients/) do
+          untenanted { post oauth_authorization_path, params: authorization.merge(client_id: [ URL ]) }
+        end
+      end
 
-    assert_response :bad_request
-    assert_equal "Unknown client", response.parsed_body["error_description"]
+      assert_response :bad_request
+      assert_select "code", text: "invalid_request"
+      assert_match "client_id", response.body
+    end
   end
 
   test "a metadata document client isn't reachable by a client_id that isn't its URL" do

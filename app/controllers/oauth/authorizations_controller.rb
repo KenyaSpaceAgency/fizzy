@@ -74,13 +74,13 @@ class Oauth::AuthorizationsController < Oauth::BaseController
       end
     end
 
-    # Only a single string names a client: an array would reach find_by as an
-    # IN list. A metadata document client is reached only through its URL, so
-    # the switch, the exact comparison and the refresh all apply to it.
+    # client_id is a single string by now (require_single_valued_parameters).
+    # A metadata document client is reached only through its URL, so the
+    # switch, the exact comparison and the refresh all apply to it.
     def set_client
       @client = if Oauth::ClientMetadata::Url.url_shaped?(params[:client_id])
         metadata_document_client
-      elsif params[:client_id].is_a?(String)
+      else
         Oauth::Client.find_by(client_id: params[:client_id]).then { |client| client unless client&.metadata_document? }
       end
 
