@@ -13,9 +13,9 @@ namespace :saas do
       puts "Ended #{Identity::ReviewerSignIn.sign_out_everywhere} reviewer session(s)"
       puts "Check these members; deactivate anyone who isn't the reviewer or the account's own staff:"
       Identity::ReviewerSignIn.members_of_reviewer_accounts.each do |account, users|
-        puts "  #{account.name} (#{account.id}): #{users.size} active"
+        puts "  #{account.name.inspect} (#{account.id}): #{users.size} active"
         users.each do |user|
-          puts "    #{user.role} #{user.name} <#{user.identity&.email_address}> joined #{user.created_at.utc.iso8601}"
+          puts "    #{user.role} #{user.name.inspect} #{user.identity&.email_address.inspect} joined #{user.created_at.utc.iso8601}"
         end
       end
     end

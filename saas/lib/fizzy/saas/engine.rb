@@ -222,6 +222,7 @@ module Fizzy
         Sessions::MagicLinksController.prepend Sessions::ReviewerSignIn
         ::User.prepend User::ReviewerEmailAddressLock
         Users::EmailAddressesController.include Users::ReviewerEmailAddressLock
+        UsersController.include Users::ReviewerMembershipLock
         ApplicationController.include Authorization::Controller
         CardsController.include(Card::StorageLimited::Creation)
         Cards::CommentsController.include(Card::StorageLimited::Commenting)
