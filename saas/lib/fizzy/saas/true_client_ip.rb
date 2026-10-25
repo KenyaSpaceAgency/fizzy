@@ -7,7 +7,7 @@
 #  However, for Fizzy the F5s are configured to do passthrough, so the header value isn't being
 #  copied for us. Let's do that bit of work here, before Rails' RemoteIp middleware.
 #
-#  Since kamal-proxy 0.10.0 the load balancer does the same copy for us
+#  Since kamal-proxy 0.10 the load balancer does the same copy for us
 #  (--client-ip-header=True-Client-IP in saas/script/configure-lb-*.sh), which is what fixes the
 #  proxy access logs the app tier ships. This middleware is kept because it also covers the app
 #  when it is reached without going through that load balancer, and because it collapses the
