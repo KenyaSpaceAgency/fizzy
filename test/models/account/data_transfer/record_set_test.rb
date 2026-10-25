@@ -5,13 +5,28 @@ class Account::DataTransfer::RecordSetTest < ActiveSupport::TestCase
     @importable_model_names = %w[ Card Board Event ]
   end
 
+  test "import ends a batch once its entries add up to the byte limit" do
+    tags = 5.times.map { |i| { "id" => "tag#{i}", "title" => "a" * 100 } }
+    entry_size = tags.first.to_json.bytesize
+
+    record_set = Account::DataTransfer::RecordSet.new(account: importing_account, model: Tag)
+    record_set.stubs(:import_batch)
+    batches = []
+
+    stub_const(Account::DataTransfer::RecordSet, :IMPORT_BATCH_BYTES, entry_size * 3) do
+      record_set.import(from: build_reader(dir: "tags", data: tags), callback: ->(record_set:, files:) { batches << files.size })
+    end
+
+    assert_equal [ 3, 2 ], batches
+  end
+
   test "check rejects polymorphic type not in the importable models allowlist" do
     event_data = build_event_data(eventable_type: "Identity")
 
     record_set = Account::DataTransfer::RecordSet.new(account: importing_account, model: Event, importable_model_names: @importable_model_names)
 
     error = assert_raises(Account::DataTransfer::RecordSet::IntegrityError) do
-      record_set.check(from: build_reader(dir: "events", data: event_data))
+      record_set.check(from: build_reader(dir: "events", data: event_data, users: [ exported_user_data ]))
     end
 
     assert_match(/unrecognized.*type/i, error.message)
@@ -23,7 +38,7 @@ class Account::DataTransfer::RecordSetTest < ActiveSupport::TestCase
     record_set = Account::DataTransfer::RecordSet.new(account: importing_account, model: Event, importable_model_names: @importable_model_names)
 
     error = assert_raises(Account::DataTransfer::RecordSet::IntegrityError) do
-      record_set.check(from: build_reader(dir: "events", data: event_data))
+      record_set.check(from: build_reader(dir: "events", data: event_data, users: [ exported_user_data ]))
     end
 
     assert_match(/unrecognized.*type/i, error.message)
@@ -35,7 +50,7 @@ class Account::DataTransfer::RecordSetTest < ActiveSupport::TestCase
     record_set = Account::DataTransfer::RecordSet.new(account: importing_account, model: Event, importable_model_names: @importable_model_names)
 
     error = assert_raises(Account::DataTransfer::RecordSet::IntegrityError) do
-      record_set.check(from: build_reader(dir: "events", data: event_data))
+      record_set.check(from: build_reader(dir: "events", data: event_data, users: [ exported_user_data ]))
     end
 
     assert_match(/unrecognized.*type/i, error.message)
@@ -47,8 +62,89 @@ class Account::DataTransfer::RecordSetTest < ActiveSupport::TestCase
     record_set = Account::DataTransfer::RecordSet.new(account: importing_account, model: Event, importable_model_names: @importable_model_names)
 
     assert_nothing_raised do
+      record_set.check(from: build_reader(dir: "events", data: event_data, users: [ exported_user_data ]))
+    end
+  end
+
+  test "check rejects a record whose creator is not a user in the export" do
+    event_data = build_event_data(eventable_type: "Card")
+
+    record_set = Account::DataTransfer::RecordSet.new(account: importing_account, model: Event, importable_model_names: @importable_model_names)
+
+    error = assert_raises(Account::DataTransfer::RecordSet::IntegrityError) do
       record_set.check(from: build_reader(dir: "events", data: event_data))
     end
+
+    assert_match(/creator .* not a user in the export/i, error.message)
+  end
+
+  test "check rejects a webhook that points at an existing board in another account" do
+    victim_board = boards(:writebook)
+    webhook_data = {
+      "id" => ActiveRecord::Type::Uuid.generate,
+      "account_id" => ActiveRecord::Type::Uuid.generate,
+      "board_id" => victim_board.id,
+      "active" => true,
+      "name" => "Imported Webhook",
+      "url" => "https://example.com/webhook",
+      "signing_secret" => SecureRandom.base58(24),
+      "subscribed_actions" => %w[ card_published comment_created ].to_json,
+      "created_at" => Time.current.iso8601,
+      "updated_at" => Time.current.iso8601
+    }
+
+    error = assert_raises(Account::DataTransfer::RecordSet::ConflictError) do
+      webhook_record_set.check(from: build_reader(dir: "webhooks", data: webhook_data))
+    end
+
+    assert_match(/references existing board.*#{victim_board.id}/i, error.message)
+    assert_not Webhook.exists?(id: webhook_data["id"])
+  end
+
+  test "only optional attributes that are columns here count" do
+    record_set = Account::DataTransfer::RecordSet.new(account: importing_account, model: Tag, optional_attributes: %w[ title not_a_column ])
+
+    assert_equal %w[ title ], record_set.optional_attributes
+  end
+
+  test "check requires every attribute that isn't optional" do
+    tag_data = { "id" => ActiveRecord::Type::Uuid.generate, "account_id" => ActiveRecord::Type::Uuid.generate, "created_at" => Time.current.iso8601, "updated_at" => Time.current.iso8601 }
+
+    error = assert_raises(Account::DataTransfer::RecordSet::IntegrityError) do
+      Account::DataTransfer::RecordSet.new(account: importing_account, model: Tag).check(from: build_reader(dir: "tags", data: tag_data))
+    end
+
+    assert_match(/missing required fields: title/, error.message)
+  end
+
+  test "a record lacking an optional attribute checks and imports it as null" do
+    tag_data = { "id" => ActiveRecord::Type::Uuid.generate, "account_id" => ActiveRecord::Type::Uuid.generate, "created_at" => Time.current.iso8601, "updated_at" => Time.current.iso8601 }
+    record_set = Account::DataTransfer::RecordSet.new(account: importing_account, model: Tag, optional_attributes: %w[ title ])
+
+    assert_nothing_raised { record_set.check(from: build_reader(dir: "tags", data: tag_data)) }
+    record_set.import(from: build_reader(dir: "tags", data: tag_data))
+
+    assert_nil Tag.find(tag_data["id"]).title
+  end
+
+  test "a webhook exported before it had a creator or an app still imports" do
+    webhook_data = {
+      "id" => ActiveRecord::Type::Uuid.generate,
+      "account_id" => ActiveRecord::Type::Uuid.generate,
+      "board_id" => ActiveRecord::Type::Uuid.generate,
+      "active" => true,
+      "name" => "Imported Webhook",
+      "url" => "https://example.com/webhook",
+      "signing_secret" => SecureRandom.base58(24),
+      "subscribed_actions" => %w[ card_published comment_created ],
+      "created_at" => Time.current.iso8601,
+      "updated_at" => Time.current.iso8601
+    }
+
+    assert_nothing_raised { webhook_record_set.check(from: build_reader(dir: "webhooks", data: webhook_data)) }
+    webhook_record_set.import(from: build_reader(dir: "webhooks", data: webhook_data))
+
+    assert_equal importing_account, Webhook.find(webhook_data["id"]).account
   end
 
   test "check rejects a unique key that already exists in the destination database" do
@@ -143,7 +239,7 @@ class Account::DataTransfer::RecordSetTest < ActiveSupport::TestCase
         "id" => "test_event_id_12345678901234",
         "account_id" => "nonexistent_account_id_1234567",
         "board_id" => "nonexistent_board_id_12345678",
-        "creator_id" => "nonexistent_user_id_123456789",
+        "creator_id" => exported_user_data["id"],
         "eventable_type" => eventable_type,
         "eventable_id" => "nonexistent_id_1234567890123",
         "action" => "created",
@@ -151,6 +247,10 @@ class Account::DataTransfer::RecordSetTest < ActiveSupport::TestCase
         "created_at" => Time.current.iso8601,
         "updated_at" => Time.current.iso8601
       }
+    end
+
+    def webhook_record_set
+      Account::DataTransfer::Manifest.new(importing_account).to_enum(:each_record_set).find { |record_set| record_set.model == Webhook }
     end
 
     def publication_record_set
@@ -168,13 +268,23 @@ class Account::DataTransfer::RecordSetTest < ActiveSupport::TestCase
       }
     end
 
-    def build_reader(dir:, data:)
+    def exported_user_data
+      @exported_user_data ||= {
+        "id" => ActiveRecord::Type::Uuid.generate,
+        "name" => "Exported User"
+      }
+    end
+
+    def build_reader(dir:, data:, users: [])
       tempfile = Tempfile.new([ "import_test", ".zip" ])
       tempfile.binmode
 
       writer = ZipFile::Writer.new(tempfile)
       Array.wrap(data).each do |record_data|
         writer.add_file("data/#{dir}/#{record_data['id']}.json", record_data.to_json)
+      end
+      users.each do |user_data|
+        writer.add_file("data/users/#{user_data['id']}.json", user_data.to_json)
       end
       writer.close
       tempfile.rewind

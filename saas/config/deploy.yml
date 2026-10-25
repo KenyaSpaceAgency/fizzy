@@ -16,13 +16,21 @@ servers:
   # tempfile the app owns is EACCES — which is every Active Storage operation this cell carries except the
   # analyzers. The app owns the files, so it must be in the group to put them in it: without this the
   # failure moves rather than goes, from EACCES in the cell to EPERM in the app. Must match HOTCELL_GROUP.
+  #
+  # publish on both roles, because the OTel collector scrapes Yabeda on 9394 from the host. On a rootless
+  # Docker host (staging) the host cannot reach a container's bridge address, so the port has to be
+  # published on loopback. No host port, so Docker picks a free one: the collector itself listens on 9394,
+  # and during a deploy the old and new containers run at the same time. The collector reads the port
+  # from Docker.
   web:
     options:
       group-add: 10001
+      publish: "127.0.0.1::9394"
   jobs:
     cmd: bin/jobs
     options:
       group-add: 10001
+      publish: "127.0.0.1::9394"
 
 volumes:
   - fizzy:/rails/storage
@@ -71,10 +79,15 @@ builder:
 accessories:
   hotcell:
     # Immutable, and never `latest`: a reboot pulls whatever the tag names at that moment, so a moving tag
-    # would make what a host runs depend on when it last rebooted. saas/hotcell/bin/build writes this line;
-    # saas/hotcell/bin/push publishes the tag. Until push has run the pull fails loudly, which is the right
-    # way for an unbuilt image to fail.
-    image: registry.37signals.com/basecamp/fizzy-hotcell:2f4ddc90eae3
+    # would make what a host runs depend on when it last rebooted. saas/hotcell/bin/build writes the literal
+    # tag; saas/hotcell/bin/push publishes it. Until push has run the pull fails loudly, which is the right
+    # way for an unbuilt image to fail. HOTCELL_IMAGE is how saas/hotcell/bin/check reboots onto another
+    # commit's pin, for a rollback.
+<%- if ENV.fetch("HOTCELL_IMAGE", "") != "" -%>
+    image: <%= ENV["HOTCELL_IMAGE"] %>
+<%- else -%>
+    image: registry.37signals.com/basecamp/fizzy-hotcell:bb21fd4fefd5
+<%- end -%>
     roles: [ web, jobs ]  # a descriptor cannot cross machines, so a cell lives on its caller's host
     # An accessory's own key, not one of the options below. Kamal always emits a --network of its own,
     # defaulting to `kamal`, so the same setting under `options:` is a second --network flag and Docker
@@ -108,6 +121,45 @@ accessories:
       security-opt: no-new-privileges:true
       user: 10001:10001
       pids-limit: 512
+
+# Hosted Fizzy MCP (basecamp/fizzy-mcp-server, `fizzy-mcp http`). Each destination that runs it names its
+# hosts and its own proxy host. A destination with no proxy host would get an accessory that kamal-proxy
+# routes as a catch-all over the app, so the accessory exists only on those destinations (bc3's
+# basecamp_mcp lesson). Like hotcell, a deploy never touches it; booting it is explicit, and is done a
+# host at a time with saas/bin/mcp-rolling-reboot, never a destination-wide `kamal accessory reboot`
+# (which stops every copy at once).
+#
+# Dark: no FIZZY_MCP_EXCHANGE_* is set, so the server refuses every token and holds no Fizzy credential.
+# Lighting a destination means Fizzy serving the delegation exchange there (hosted plan, phases B-C), the
+# fizzy-mcp-server client and its secret provisioned, and the exchange env and secret added to that
+# destination's file.
+<%- if %w[ production staging beta ].include?(ENV["KAMAL_DESTINATION"]) || ENV["KAMAL_DESTINATION"].to_s.match?(/\Abeta\d+\z/) -%>
+  fizzy_mcp:
+    # The digest basecamp/fizzy-mcp-server's scripts/build-image.sh printed for v0.2.0, built from the
+    # cosign-verified release archives. Hosts boot exactly this content or nothing; bump it only to
+    # another digest that script prints.
+    image: registry.37signals.com/basecamp/fizzy-mcp-server:v0.2.0@sha256:f16aa6bf410c04bb31d4b7f9c02869709caabc3e9cd41de942a08b6c91c4e848
+    proxy:
+      app_port: 8080
+      # A request runs at most 45s (hosted.RequestBudget); the server's write timeout is 60s.
+      response_timeout: 60
+      # Keep the load balancer's X-Forwarded-For, whose first entry is the client (the LB's fizzy_mcp
+      # service sets it from True-Client-IP: saas/script/configure-lb-mcp.sh). The server keys its
+      # exchange budget on that entry (FIZZY_MCP_TRUST_PROXY, fizzy-mcp-server#16).
+      forward_headers: true
+      healthcheck:
+        path: /up
+    env:
+      clear:
+        FIZZY_MCP_ADDR: ":8080"
+        FIZZY_MCP_TRUST_PROXY: "true"
+    options:
+      memory: 256m
+      dns-opt: [ "ndots:1", "no-aaaa" ]
+      # On SIGTERM the server stops taking requests and waits up to 30s for the ones in flight. Docker's
+      # default 10s grace would kill it mid-drain.
+      stop-timeout: 35
+<%- end -%>
 
 aliases:
   console: app exec -i --reuse -e CONSOLE_USER:<%= ENV["USER"] %> "bin/rails console"

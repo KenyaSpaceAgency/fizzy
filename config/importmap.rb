@@ -18,3 +18,6 @@ pin_all_from "app/javascript/bridge/controllers/bridge", under: "controllers/bri
 pin "lexxy"
 pin "@rails/activestorage", to: "activestorage.esm.js"
 pin "@rails/actiontext", to: "actiontext.esm.js"
+pin "dompurify" # @3.4.17
+pin "prismjs/components/prism-mermaid", to: "prism-mermaid.js"
+pin "pele", preload: false # @1.6.0
