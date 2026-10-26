@@ -288,7 +288,7 @@ class Identity::AccessToken < ApplicationRecord
 
   private
     def record_issuance
-      if oauth_client_id?
+      if oauth?
         Oauth::Audit.record "code.redeemed", grant: self, actor: "client" if authorization_code_jti?
         Oauth::Audit.record "grant.created", grant: self, actor: "client", permission: permission
         Oauth::Audit.record "token.issued", grant: self, actor: "client", grant_type: "authorization_code", permission: permission
@@ -299,7 +299,7 @@ class Identity::AccessToken < ApplicationRecord
 
     def record_revocation
       ending = revocation || { reason: cascade_reason, actor: "system" }
-      Oauth::Audit.record oauth_client_id? ? "grant.revoked" : "pat.revoked", grant: self, **ending
+      Oauth::Audit.record oauth? ? "grant.revoked" : "pat.revoked", grant: self, **ending
     end
 
     # A grant destroyed along with its identity or its client, which only the
