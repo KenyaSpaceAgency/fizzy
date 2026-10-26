@@ -1,5 +1,5 @@
 # Make sure RUBY_VERSION matches the Ruby version in .ruby-version
-ARG RUBY_VERSION=3.4.8
+ARG RUBY_VERSION=4.0.9
 FROM registry.docker.com/library/ruby:$RUBY_VERSION-slim AS base
 
 # Rails app lives here
@@ -12,6 +12,12 @@ ENV RAILS_ENV="production" \
     BUNDLE_PATH="/usr/local/bundle" \
     BUNDLE_GEMFILE="Gemfile.saas" \
     BUNDLE_WITHOUT="development"
+
+# Take the distro's current ca-certificates rather than the one frozen into the base image, here in
+# base so the build stage's gem and git fetches verify against it too. See the root check below.
+RUN apt-get update -qq && \
+    apt-get install --no-install-recommends -y ca-certificates && \
+    rm -rf /var/lib/apt/lists /var/cache/apt/archives
 
 
 # Throw-away build stage to reduce size of final image
@@ -42,11 +48,14 @@ COPY . .
 # Precompile bootsnap code for faster boot times
 RUN bundle exec bootsnap precompile app/ lib/
 
-# Precompiling assets for production
+# Precompiling assets for production. Booting builds the purestorage service, which refuses to build
+# without a direct-upload credential, so give it a placeholder that never leaves this step.
 RUN SECRET_KEY_BASE_DUMMY=1 \
     ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY=1 \
     ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY=1 \
     ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT=1 \
+    ACTIVE_STORAGE_DIRECT_UPLOAD_ACCESS_KEY_ID=placeholder \
+    ACTIVE_STORAGE_DIRECT_UPLOAD_SECRET_ACCESS_KEY=placeholder \
     ./bin/rails assets:precompile
 
 # Final stage for app image
@@ -59,6 +68,14 @@ FROM base
 RUN apt-get update -qq && \
     apt-get install --no-install-recommends -y libsqlite3-0 sqlite3 libjemalloc-dev && \
     rm -rf /var/lib/apt/lists /var/cache/apt/archives
+
+# The eMudhra intermediate CAs' private keys leaked in October 2026, and they chain to these two roots.
+# OpenSSL checks no revocation, so Ruby trusts whatever they sign until the roots leave the bundle.
+# ca-certificates is named in an apt-get install above, so a rebuild takes the distro's fixed package
+# rather than the one frozen into the base image. Fail the build if either root is still installed.
+RUN test -e /etc/ssl/certs/ISRG_Root_X1.pem && \
+  test ! -e /etc/ssl/certs/emSign_ECC_Root_CA_-_G3.pem && \
+  test ! -e /etc/ssl/certs/Comodo_AAA_Services_root.pem
 
 # Copy built artifacts: gems, application
 COPY --from=build /usr/local/bundle /usr/local/bundle
@@ -78,15 +95,7 @@ USER rails:rails
 # Entrypoint prepares the database.
 ENTRYPOINT ["/rails/bin/docker-entrypoint"]
 
-# Ruby GC tuning values pulled from Autotuner recommendations
-ENV RUBY_GC_HEAP_0_INIT_SLOTS=692636 \
-    RUBY_GC_HEAP_1_INIT_SLOTS=175943 \
-    RUBY_GC_HEAP_2_INIT_SLOTS=148807 \
-    RUBY_GC_HEAP_3_INIT_SLOTS=9169 \
-    RUBY_GC_HEAP_4_INIT_SLOTS=3054 \
-    RUBY_GC_MALLOC_LIMIT=67108864 \
-    RUBY_GC_MALLOC_LIMIT_MAX=134217728 \
-    LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2
+ENV LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2
 
 # Start the server by default, this can be overwritten at runtime
 EXPOSE 80 443 9394
