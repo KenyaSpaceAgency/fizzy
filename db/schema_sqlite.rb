@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.2].define(version: 2026_10_15_120200) do
+ActiveRecord::Schema[8.2].define(version: 2026_10_19_150000) do
   create_table "accesses", id: :uuid, force: :cascade do |t|
     t.datetime "accessed_at"
     t.uuid "account_id", null: false
@@ -352,8 +352,11 @@ ActiveRecord::Schema[8.2].define(version: 2026_10_15_120200) do
   end
 
   create_table "identity_access_tokens", id: :uuid, force: :cascade do |t|
+    t.uuid "account_id"
+    t.string "audience", limit: 255
     t.string "authorization_code_jti", limit: 255
     t.datetime "created_at", null: false
+    t.uuid "delegated_from_id"
     t.text "description", limit: 65535
     t.datetime "expires_at"
     t.uuid "identity_id", null: false
@@ -364,7 +367,9 @@ ActiveRecord::Schema[8.2].define(version: 2026_10_15_120200) do
     t.string "token", limit: 255
     t.string "token_digest", limit: 80
     t.datetime "updated_at", null: false
+    t.index ["account_id"], name: "index_identity_access_tokens_on_account_id"
     t.index ["authorization_code_jti"], name: "index_identity_access_tokens_on_authorization_code_jti", unique: true
+    t.index ["delegated_from_id"], name: "index_identity_access_tokens_on_delegated_from_id"
     t.index ["identity_id"], name: "index_access_token_on_identity_id"
     t.index ["oauth_client_id"], name: "index_identity_access_tokens_on_oauth_client_id"
     t.index ["refresh_token"], name: "index_identity_access_tokens_on_refresh_token", unique: true
@@ -442,16 +447,28 @@ ActiveRecord::Schema[8.2].define(version: 2026_10_15_120200) do
 
   create_table "oauth_clients", id: :uuid, force: :cascade do |t|
     t.string "client_id", limit: 255, null: false
+    t.boolean "client_id_metadata_document", default: false
     t.string "client_secret_digest", limit: 80
     t.datetime "created_at", null: false
     t.boolean "dynamically_registered", default: false
+    t.string "metadata_etag", limit: 191
+    t.datetime "metadata_expires_at"
+    t.datetime "metadata_fetched_at"
     t.string "name", limit: 255, null: false
+    t.string "protected_resource", limit: 255
     t.json "redirect_uris"
     t.json "scopes"
     t.string "token_endpoint_auth_method", limit: 255, default: "none", null: false
     t.boolean "trusted", default: false
     t.datetime "updated_at", null: false
     t.index ["client_id"], name: "index_oauth_clients_on_client_id", unique: true
+  end
+
+  create_table "oauth_redeemed_authorization_codes", id: :uuid, force: :cascade do |t|
+    t.string "jti", limit: 36, null: false
+    t.datetime "created_at", null: false
+    t.index ["created_at"], name: "index_oauth_redeemed_authorization_codes_on_created_at"
+    t.index ["jti"], name: "index_oauth_redeemed_authorization_codes_on_jti", unique: true
   end
 
   create_table "oauth_retired_refresh_tokens", id: :uuid, force: :cascade do |t|

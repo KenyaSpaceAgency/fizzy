@@ -370,6 +370,38 @@ class Oauth::ClientTest < ActiveSupport::TestCase
     assert_not Oauth::Client.exists?(stale.id)
   end
 
+  test "cleanup destroys metadata document clients left without a grant for the retention period" do
+    stale = travel_to(31.days.ago) { register_metadata_document_client }
+    recent = travel_to(29.days.ago) { register_metadata_document_client(client_id: "https://claude.ai/recent") }
+
+    Oauth::Client.cleanup
+
+    assert_not Oauth::Client.exists?(stale.id)
+    assert Oauth::Client.exists?(recent.id)
+  end
+
+  test "a metadata document client is held to self-registered redirects, and none is vetted but loopback" do
+    client = Oauth::Client.new name: "Claude", client_id: "https://claude.ai/client.json", client_id_metadata_document: true, redirect_uris: %w[ http://claude.ai/callback ]
+    assert_not client.valid?
+
+    client.redirect_uris = %w[ https://claude.ai/callback http://127.0.0.1:9000/callback ]
+    assert client.valid?
+    assert_not client.vetted_redirect?("https://claude.ai/callback")
+    assert client.vetted_redirect?("http://127.0.0.1:9000/callback")
+  end
+
+  test "a provisioned client keeps the client_id it was given" do
+    assert_equal "https://claude.ai/client.json", register_metadata_document_client.client_id
+  end
+
+  test "find_presented compares the client_id exactly" do
+    client = register_metadata_document_client
+
+    assert_equal client, Oauth::Client.find_presented("https://claude.ai/client.json")
+    assert_nil Oauth::Client.find_presented("https://claude.ai/CLIENT.json")
+    assert_nil Oauth::Client.find_presented([ "https://claude.ai/client.json" ])
+  end
+
   test "cleanup keeps recent, granted and operator-provisioned clients" do
     recent = travel_to(29.days.ago) { register_client }
     granted = travel_to(31.days.ago) { register_client.tap { identities(:david).access_tokens.create!(oauth_client: it) } }
@@ -497,6 +529,91 @@ class Oauth::ClientTest < ActiveSupport::TestCase
     assert_not Identity::AccessToken.exists?(grant.id)
   end
 
+  test "the personal access token issuer is the provisioned client" do
+    assert_equal oauth_clients(:personal_access), Oauth::Client.personal_access_issuer
+  end
+
+  # A fresh install loads the schema instead of migrating.
+  test "the personal access token issuer is provisioned on first use where it's missing" do
+    Oauth::Client.personal_access.delete_all
+
+    issuer = assert_difference("Oauth::Client.count", +1) { Oauth::Client.personal_access_issuer }
+
+    assert issuer.personal_access?
+    assert issuer.trusted?
+    assert_not issuer.dynamically_registered?
+    assert_not issuer.confidential?
+    assert_empty issuer.redirect_uris
+    assert_equal issuer, Oauth::Client.personal_access_issuer
+  end
+
+  # Another first use committed the issuer after this one looked and before its
+  # uniqueness validation ran.
+  test "the personal access token issuer is found when a concurrent first use provisioned it" do
+    issuer = oauth_clients(:personal_access)
+    Oauth::Client.stubs(:personal_access).returns(Oauth::Client.none).then.returns(Oauth::Client.where(id: issuer.id))
+
+    assert_no_difference("Oauth::Client.count") do
+      assert_equal issuer, Oauth::Client.personal_access_issuer
+    end
+  end
+
+  test "the personal access token issuer is found when a concurrent first use won the unique index" do
+    issuer = oauth_clients(:personal_access)
+    Oauth::Client.stubs(:personal_access).returns(Oauth::Client.none)
+    Oauth::Client.any_instance.stubs(:valid?).returns(true)
+
+    assert_no_difference("Oauth::Client.count") do
+      assert_equal issuer, Oauth::Client.personal_access_issuer
+    end
+  end
+
+  test "the personal access token issuer may obtain no grant, and every other client the code and refresh grants" do
+    assert_empty oauth_clients(:personal_access).grant_types
+    assert_not oauth_clients(:personal_access).allows_grant_type?("authorization_code")
+    assert_not oauth_clients(:personal_access).allows_grant_type?("refresh_token")
+
+    assert oauth_clients(:mcp_client).allows_grant_type?("authorization_code")
+    assert oauth_clients(:mcp_client).allows_grant_type?("refresh_token")
+    assert_not oauth_clients(:mcp_client).allows_grant_type?("client_credentials")
+  end
+
+  test "the personal access token issuer has no redirect to send a code to" do
+    assert_not oauth_clients(:personal_access).allows_redirect?("http://127.0.0.1:8888/callback")
+  end
+
+  test "only the personal access token issuer goes without redirect URIs" do
+    client = Oauth::Client.new(name: "Unregistered", client_id: "fizzy-personal-access-impostor", redirect_uris: [])
+
+    assert_not client.valid?
+    assert client.errors[:redirect_uris].any?
+  end
+
+  test "the personal access token issuer can't be destroyed, so its tokens can't cascade away with it" do
+    token = identities(:david).access_tokens.create!(oauth_client: oauth_clients(:personal_access))
+
+    assert_not oauth_clients(:personal_access).destroy
+    assert Oauth::Client.exists?(oauth_clients(:personal_access).id)
+    assert Identity::AccessToken.exists?(token.id)
+  end
+
+  test "the personal access token issuer can't be destroyed with unsaved changes either" do
+    issuer = oauth_clients(:personal_access)
+    token = identities(:david).access_tokens.create!(oauth_client: issuer)
+    issuer.assign_attributes client_id: "renamed", name: "Renamed"
+
+    assert_not issuer.destroy
+    assert Oauth::Client.exists?(issuer.id)
+    assert Identity::AccessToken.exists?(token.id)
+  end
+
+  test "cleanup never sweeps the personal access token issuer, however long it goes unused" do
+    oauth_clients(:personal_access).update_columns updated_at: 1.year.ago
+
+    Oauth::Client.cleanup
+
+    assert Oauth::Client.exists?(oauth_clients(:personal_access).id)
+  end
 
   test "destroying a client with unsaved changes still destroys it and its grants" do
     client = Oauth::Client.create!(name: "Dirty", redirect_uris: %w[ http://127.0.0.1:8888/callback ])
@@ -510,6 +627,10 @@ class Oauth::ClientTest < ActiveSupport::TestCase
   end
 
   private
+    def register_metadata_document_client(**attributes)
+      Oauth::Client.create! name: "Claude", client_id: "https://claude.ai/client.json", redirect_uris: %w[ https://claude.ai/callback ], client_id_metadata_document: true, **attributes
+    end
+
     def register_client(**attributes)
       Oauth::Client.create! name: "Abandoned", redirect_uris: %w[ http://127.0.0.1:8888/callback ], dynamically_registered: true, **attributes
     end

@@ -7,6 +7,17 @@ module Oauth
     scope.to_s.split.include?("write") ? "read write" : "read"
   end
 
+  # The protected resources, other than Fizzy's own API, that an OAuth grant
+  # may be issued for (RFC 8707): the hosted MCP server's resource URL, by
+  # exact string, from FIZZY_OAUTH_MCP_RESOURCES. None unless configured.
+  def self.mcp_resources
+    Array(Rails.application.config.x.oauth.mcp_resources)
+  end
+
+  def self.mcp_resource?(resource)
+    resource.is_a?(String) && resource.present? && mcp_resources.include?(resource)
+  end
+
   def self.loopback_host?(host)
     LOOPBACK_HOSTS.include?(URI.decode_www_form_component(host.to_s).downcase)
   rescue ArgumentError
@@ -42,6 +53,17 @@ module Oauth
     else
       host.match?(PLAIN_HOST)
     end
+  end
+
+  # Each OAuth sweep runs as its own recurring job, and a failure still fails
+  # that job. It's also announced, as cleanup_failure.oauth, so a sweep that
+  # keeps failing can be counted and alerted on (SaaS counts it in Yabeda)
+  # rather than found later as the rows it left behind.
+  def self.cleanup_step(step)
+    yield
+  rescue => error
+    ActiveSupport::Notifications.instrument "cleanup_failure.oauth", step: step, error_class: error.class.name
+    raise
   end
 
   # Dynamic client registration is open and unauthenticated, so a remote
