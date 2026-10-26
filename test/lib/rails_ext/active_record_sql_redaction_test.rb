@@ -49,7 +49,7 @@ class ActiveRecordSqlRedactionTest < ActiveSupport::TestCase
   test "an access token is absent from its logged insert and lookup" do
     log, executed = capture do
       access_token = identities(:kevin).access_tokens.create!(token: TOKEN, permission: "write")
-      assert_equal identities(:kevin), Identity.find_by_permissable_access_token(TOKEN, method: "POST")
+      assert_equal identities(:kevin), Identity::AccessToken.find_permissable(TOKEN, method: "POST")&.identity
       access_token.update!(description: "Made-up script")
     end
 
@@ -139,7 +139,7 @@ class ActiveRecordSqlRedactionTest < ActiveSupport::TestCase
       ActiveSupport::Notifications.subscribe(/active_record/) { |_name, _start, _finish, _id, payload| seen << payload.dup }
     ]
 
-    assert_equal identities(:kevin), Identity.find_by_permissable_access_token(identities(:kevin).access_tokens.create!(token: TOKEN).token, method: "GET")
+    assert_equal identities(:kevin), Identity::AccessToken.find_permissable(identities(:kevin).access_tokens.create!(token: TOKEN).token, method: "GET")&.identity
 
     redacted = seen.select { |payload| payload[:sql].to_s.include?("identity_access_tokens") }
     assert redacted.many?
