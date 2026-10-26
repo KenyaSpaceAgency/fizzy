@@ -261,10 +261,15 @@ class Identity::AccessToken < ApplicationRecord
       end
     end
 
+    # Recorded once the rotation commits, as issuance and revocation are, so a
+    # caller that refreshes inside a transaction of its own and rolls it back
+    # reports no refresh.
     if rotated_now
-      Oauth::Audit.record "token.refreshed", grant: self, actor: "client", grant_type: "refresh_token", permission: self.permission
-      # A refresh may only narrow (RFC 6749 §6), so a change is a narrowing.
-      Oauth::Audit.record "grant.narrowed", grant: self, actor: "client", permission: self.permission if narrowed
+      ActiveRecord.after_all_transactions_commit do
+        Oauth::Audit.record "token.refreshed", grant: self, actor: "client", grant_type: "refresh_token", permission: self.permission
+        # A refresh may only narrow (RFC 6749 §6), so a change is a narrowing.
+        Oauth::Audit.record "grant.narrowed", grant: self, actor: "client", permission: self.permission if narrowed
+      end
     end
 
     rotated_now
