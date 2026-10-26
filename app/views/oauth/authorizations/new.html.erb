@@ -16,7 +16,7 @@
     <span>Signed in as <strong><%= Current.identity.email_address %></strong></span>
     <%= button_to "Not you?", oauth_authorization_switch_path,
           params: { client_id: @client.client_id, redirect_uri: @redirect_uri, response_type: "code", scope: @scope,
-            state: @state, code_challenge: @code_challenge, code_challenge_method: "S256" }.compact,
+            state: @state, code_challenge: @code_challenge, code_challenge_method: "S256", resource: @resource }.compact,
           class: "btn btn--plain txt-link txt-small", form: { data: { turbo: false } } %>
   </div>
 
@@ -27,6 +27,7 @@
     <%= f.hidden_field :code_challenge, value: @code_challenge %>
     <%= f.hidden_field :code_challenge_method, value: "S256" %>
     <%= f.hidden_field :response_type, value: "code" %>
+    <%= f.hidden_field :resource, value: @resource if @resource %>
 
     <%# Account binding sets @accounts: a connection then reaches the one account chosen here %>
     <% if @accounts %>

@@ -1,8 +1,14 @@
 class Oauth::TokensController < Oauth::BaseController
   include Oauth::ClientAuthentication
 
+  GRANT_TYPES = %w[ authorization_code refresh_token ]
+
   allow_unauthenticated_access
   skip_forgery_protection
+
+  # Ahead of this controller's own callbacks, so the time measured covers them, the
+  # throttle and client authentication included.
+  around_action :instrument_token_request
 
   # Availability first: rate_limit is a before_action too, so a dark endpoint
   # that counted requests first would answer 429 to the eleventh, not 404.
@@ -17,6 +23,7 @@ class Oauth::TokensController < Oauth::BaseController
   # the answer must not depend on whether the code or refresh token is live,
   # or it tells whoever holds one without the secret.
   before_action :authenticate_client
+  before_action :validate_client_grant_type
   before_action :require_params
 
   with_options if: :authorization_code_grant? do
@@ -32,7 +39,11 @@ class Oauth::TokensController < Oauth::BaseController
     before_action :validate_pkce
     before_action :validate_redirect_uri
     before_action :set_identity
+    before_action :validate_code_resource
+    before_action :validate_bound_account
   end
+
+  before_action :validate_refresh_resource, unless: -> { authorization_code_grant? || unretryable_replay? }
 
   # A replay that can't be a retry is answered before any scope is weighed:
   # outside the grace window it's revoked, so no scope parameter can steer it
@@ -46,7 +57,7 @@ class Oauth::TokensController < Oauth::BaseController
       granted = Oauth.canonical_scope(@auth_code.scope)
       permission = granted.split.include?("write") ? "write" : "read"
 
-      if access_token = @client.redeem(@auth_code, identity: @identity, permission: permission)
+      if access_token = @client.redeem(@auth_code, identity: @identity, permission: permission, audience: @auth_code.audience, account_id: @auth_code.account_id)
         render json: token_response(access_token, scope: granted)
       else
         oauth_error "invalid_grant", "Authorization code already used"
@@ -66,6 +77,12 @@ class Oauth::TokensController < Oauth::BaseController
   end
 
   private
+    # Timed under the grant type requested, if it's one we support, and
+    # otherwise "unknown", so no request can add a label value.
+    def instrument_token_request(&)
+      ActiveSupport::Notifications.instrument "token_request.oauth", grant_type: params[:grant_type].presence_in(GRANT_TYPES) || "unknown", &
+    end
+
     def authorization_code_grant?
       params[:grant_type] == "authorization_code"
     end
@@ -73,8 +90,17 @@ class Oauth::TokensController < Oauth::BaseController
     def validate_grant_type
       if params[:grant_type].blank?
         oauth_error "invalid_request", "Missing required parameter: grant_type"
-      elsif !params[:grant_type].in?(%w[ authorization_code refresh_token ])
+      elsif !params[:grant_type].in?(GRANT_TYPES)
         oauth_error "unsupported_grant_type", "Only authorization_code and refresh_token grants are supported"
+      end
+    end
+
+    # A client is refused a grant type it isn't registered for (RFC 6749 §5.2),
+    # so the personal access token issuer, registered for none, can never
+    # mint, refresh or exchange a token here.
+    def validate_client_grant_type
+      if requesting_client && !requesting_client.allows_grant_type?(params[:grant_type])
+        oauth_error "unauthorized_client", "Client may not use the #{params[:grant_type]} grant"
       end
     end
 
@@ -128,6 +154,35 @@ class Oauth::TokensController < Oauth::BaseController
       end
     end
 
+    # RFC 8707 §2.2: a resource on redemption must name what the code was
+    # issued for. A code for the hosted MCP server answers to that resource
+    # alone; any other code, to Fizzy's own API. Neither is widened or moved
+    # by what the token request names.
+    def validate_code_resource
+      unless resource_matches?(@auth_code.audience)
+        oauth_error "invalid_target", "resource does not match the authorization"
+      end
+    end
+
+    # An audienced code is bound to the account picked at consent, and it is
+    # honored only while the person still belongs to that account and the
+    # account is active.
+    def validate_bound_account
+      if @auth_code.audience.present? || @auth_code.account_id.present?
+        unless @auth_code.audience.present? && @identity.users_with_active_accounts.exists?(account_id: @auth_code.account_id)
+          oauth_error "invalid_grant", "The authorized account is no longer available"
+        end
+      end
+    end
+
+    # A refresh may name a resource, but only the grant's own (RFC 8707 §2.2).
+    # The audience is the grant's, stamped at consent, never the request's.
+    def validate_refresh_resource
+      unless resource_matches?(@access_token.audience)
+        oauth_error "invalid_target", "resource does not match the grant"
+      end
+    end
+
     # A rotated refresh token still resolves to its grant, so that presenting
     # it again can be told apart as a retry or a replay once the client is
     # known to be the grant's own.
@@ -176,6 +231,9 @@ class Oauth::TokensController < Oauth::BaseController
       if requested.present? && requested.all? { |scope| granted.include?(scope) }
         @refresh_permission = requested.include?("write") ? "write" : "read"
       else
+        # A retry within the grace window is a replay even when its scope is
+        # refused here, before it reaches answer_refresh_replay.
+        record_grace_replay @access_token, "scope_mismatch" if @retired_refresh_token
         oauth_error "invalid_scope", "Requested scope exceeds the original grant"
       end
     end
@@ -215,9 +273,11 @@ class Oauth::TokensController < Oauth::BaseController
         if retired_refresh_token.retryable?(grant)
           answer_refresh_retry grant, retired_refresh_token.successor
         elsif retired_refresh_token.within_grace?
+          record_grace_replay grant, "superseded"
           oauth_error "invalid_grant", "Refresh token superseded"
         else
-          grant.destroy
+          Oauth::Audit.record "token.reuse_detected", grant: grant, actor: "client"
+          grant.revoke reason: "reuse_detected", actor: "system"
           oauth_error "invalid_grant", "Refresh token reuse detected"
         end
       else
@@ -233,13 +293,22 @@ class Oauth::TokensController < Oauth::BaseController
     # client, which holds no live token, is refused without revoking.
     def answer_refresh_retry(grant, successor)
       if @refresh_permission != grant.permission
+        record_grace_replay grant, "scope_mismatch"
         oauth_error "invalid_scope", "Requested scope differs from the rotation being retried"
       elsif successor
+        record_grace_replay grant, "answered"
         grant.assign_attributes raw_token: successor[:access_token], raw_refresh_token: successor[:refresh_token]
         render json: refresh_response(grant)
       else
+        record_grace_replay grant, "successor_gone"
         oauth_error "invalid_grant", "Refresh token no longer retryable"
       end
+    end
+
+    # A retired refresh token presented within the grace window: a client
+    # retrying a rotation, which the reason says how we answered.
+    def record_grace_replay(grant, reason)
+      Oauth::Audit.record "token.grace_replay", grant: grant, actor: "client", reason: reason
     end
 
     def refresh_response(access_token)
