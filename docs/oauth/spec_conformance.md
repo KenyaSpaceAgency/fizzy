@@ -18,6 +18,7 @@ Snapshot: 2026-10-06, at the heads of the OAuth train, rebased onto main:
 | [#3161](https://github.com/basecamp/fizzy/pull/3161) | `oauth-grant-idle-expiry` | 90-day idle expiry of grants (on #3160) |
 | [#3159](https://github.com/basecamp/fizzy/pull/3159) | `oauth-client-sweep` | Sweep of abandoned DCR clients (on #3161) |
 | [#3192](https://github.com/basecamp/fizzy/pull/3192) | `oauth-token-digests` | Tokens and client secrets stored as digests, step 1 of 3 (on #3169) |
+| [#3204](https://github.com/basecamp/fizzy/pull/3204) | `oauth-audit-metrics` | OAuth Standard AU-1 audit events and OB-1 metrics (on #3192) |
 
 Commits are cited by subject, with the short SHA as of the snapshot. Rebases change
 the SHAs of #3080 and above; the subjects stay the same.
@@ -65,7 +66,7 @@ Status key:
 
 | Requirement | Status |
 |---|---|
-| Authorization codes are single-use; reuse is refused and the grant minted from that code is revoked (§4.1.2, §10.5; OAuth 2.1 §4.1.3) | **Fixed** #2296 `bd447dd7a` "Redeem each authorization code once…". A `jti` in the code plus a unique `identity_access_tokens.authorization_code_jti`. Reuse is checked only after PKCE, `redirect_uri` and `client_id` pass, so a leaked code without its verifier can't revoke the grant. Limit: if the grant is revoked within the code's 60s life, the row is gone and one more redemption is possible. No tombstones were added. |
+| Authorization codes are single-use; reuse is refused and the grant minted from that code is revoked (§4.1.2, §10.5; OAuth 2.1 §4.1.3) | **Fixed** #2296 `bd447dd7a` "Redeem each authorization code once…". A `jti` in the code plus a unique `identity_access_tokens.authorization_code_jti`. Reuse is checked only after PKCE, `redirect_uri` and `client_id` pass, so a leaked code without its verifier can't revoke the grant. Since #3206, each redemption also records the code's `jti` in `oauth_redeemed_authorization_codes`, in the same transaction as the grant, kept 25 hours (rubric GP-4, GP-5: at least 24 hours past expiry). So once a replay, the person or the app has revoked the grant, the code still mints nothing. |
 | `client_id` required and matched to the code for public clients (§4.1.3) | **Fixed** #2296 `bd447dd7a`; one check shared by both grants in #3081 `f9a1885ff` |
 | Missing or malformed parameters answer `invalid_request`, not `invalid_grant` or `unsupported_grant_type` (§5.2) | **Fixed** #2296 `bd447dd7a`, `ac884df5f` "Reject non-string token request parameters as malformed" (an array `refresh_token` had been accepted as an `IN` list; a hash had raised a 500); #3081 `f9a1885ff`, `2b2b7f2d6` |
 | Exact `redirect_uri` equality with the code (§4.1.3) | **Conformant** |
@@ -159,6 +160,14 @@ Status key:
 | The scheme is matched case-insensitively (RFC 9110 §11.1) | **Fixed** #3158 `cc7d07659` |
 | `resource_metadata` in the challenge (RFC 9728 §5.1), omitted while dark | **Fixed** #3158 `cc7d07659` |
 | A Bearer header on an HTML request: 401, not the SHOULD-level 400 for `invalid_request` | **Deliberate** (#3158 summary); preserves the existing refusal. |
+
+## Audit events and metrics (OAuth Standard AU-1, OB-1)
+
+| Requirement | Status |
+|---|---|
+| AU-1: lifecycle events in the standard's vocabulary, with its fields, and never a token, secret or digest | **Fixed** #3204 `oauth-audit-metrics`. `Oauth::Audit` reports through `Rails.event`: `oauth.client.{registered,swept}`, `oauth.consent.{shown,approved,denied}`, `oauth.code.{issued,redeemed,replayed}`, `oauth.grant.{created,narrowed,revoked}`, `oauth.token.{issued,refreshed,grace_replay,reuse_detected}`, `oauth.pat.{created,revoked}`. Grants and PATs report their creation and ending from after-commit callbacks, so every way one ends reports, with a reason, cascades included. SaaS writes each event as its own structured log line (Loki), joined to the request line by `transaction.id`. No new personal data: identity and tenant ids are those the request log already records, and the IP address and user agent stay on the request line. Fizzy revokes whole grants, so `oauth.token.revoked` is `oauth.grant.revoked` with `presented: access\|refresh`. |
+| OB-1: one Yabeda `oauth` group under bc3's names and labels | **Fixed** #3204 `oauth-audit-metrics`, SaaS only (`saas/lib/yabeda/oauth.rb`): `token_grants_total`, `token_errors_total`, `token_request_duration_seconds`, `authorization_grants_total`, `authorization_denials_total`, `revocations_total`, `family_revocations_total`, `replays_total{kind=grace\|reuse}`, `dcr_registrations_total`, `dcr_rejections_total`, `rate_limit_hits_total`, `cleanup_step_failures_total`. Core code reports events and notifications only, so OSS doesn't depend on Yabeda. No client id is a label, and the scrape already adds `app="fizzy"`. |
+| AU-2, AU-3, OB-2 | **Planned**. AU-2 needs an admin disable action, which Fizzy doesn't have. OB-2 is the dashboard and alerts, kept as code. |
 
 ## Parity with bc3 not yet built
 

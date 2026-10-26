@@ -56,6 +56,10 @@ class Oauth::Client < ApplicationRecord
 
   before_create :generate_client_secret, if: :confidential?
 
+  # Self-registration is the client's own act; any other client is
+  # provisioned by an operator.
+  after_create_commit -> { Oauth::Audit.record "client.registered", client: self, actor: dynamically_registered? ? "client" : "admin" }
+
   attribute :redirect_uris, default: -> { [] }
   attribute :scopes, default: -> { %w[ read ] }
 
@@ -71,7 +75,9 @@ class Oauth::Client < ApplicationRecord
 
   class << self
     def cleanup
-      stale.find_each(&:destroy_if_still_unused)
+      Oauth.cleanup_step :stale_clients do
+        stale.find_each(&:destroy_if_still_unused)
+      end
     end
 
     # A fresh install loads the schema rather than running migrations, so the
@@ -93,10 +99,14 @@ class Oauth::Client < ApplicationRecord
   # token for a deleted client. The recheck is the whole stale test, not just
   # the absence of tokens: a grant issued and revoked since the sweep picked
   # this client has touched it, and restarted its retention period.
+  #
+  # The event follows the lock's commit, so it reports a sweep that happened.
   def destroy_if_still_unused
-    with_lock do
+    swept = with_lock do
       destroy if self.class.stale.exists?(id)
     end
+
+    Oauth::Audit.record "client.swept", client: self, actor: "system", reason: "unused" if swept
   rescue ActiveRecord::RecordNotFound
     # Already gone, deleted since the sweep picked it.
   end
@@ -123,6 +133,11 @@ class Oauth::Client < ApplicationRecord
 
   def confidential?
     token_endpoint_auth_method.in?(SECRET_AUTH_METHODS)
+  end
+
+  # RFC 6749 §2.1's client types, as bc3 labels its metrics.
+  def client_type
+    confidential? ? "confidential" : "public"
   end
 
   def authenticate_secret(secret)
