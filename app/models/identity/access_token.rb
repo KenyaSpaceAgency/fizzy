@@ -288,6 +288,17 @@ class Identity::AccessToken < ApplicationRecord
   end
   alias_method :app, :connected_app
 
+  # An app's token whose grant or client is deleted while its request is in
+  # flight, as when the person disconnects the app, has no app left to answer
+  # for what it sets up. Recorded without one, a webhook or push subscription
+  # would read as the person's own and outlive the disconnect, so it sets up
+  # nothing instead.
+  class Disconnected < StandardError; end
+
+  def connected_app!
+    connected_app || (raise Disconnected if oauth?)
+  end
+
   # An audienced grant was issued for another protected resource (the hosted
   # MCP server), named at consent by the RFC 8707 resource parameter. It's
   # that resource's credential, never Fizzy's API's: the API refuses it, and
