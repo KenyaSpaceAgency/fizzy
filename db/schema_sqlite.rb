@@ -458,6 +458,13 @@ ActiveRecord::Schema[8.2].define(version: 2026_10_19_120000) do
     t.index ["client_id"], name: "index_oauth_clients_on_client_id", unique: true
   end
 
+  create_table "oauth_redeemed_authorization_codes", id: :uuid, force: :cascade do |t|
+    t.string "jti", limit: 36, null: false
+    t.datetime "created_at", null: false
+    t.index ["created_at"], name: "index_oauth_redeemed_authorization_codes_on_created_at"
+    t.index ["jti"], name: "index_oauth_redeemed_authorization_codes_on_jti", unique: true
+  end
+
   create_table "oauth_retired_refresh_tokens", id: :uuid, force: :cascade do |t|
     t.uuid "access_token_id", null: false
     t.string "refresh_token_digest", limit: 80, null: false
