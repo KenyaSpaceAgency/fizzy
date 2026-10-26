@@ -184,12 +184,6 @@ class Oauth::AuthorizationsController < Oauth::BaseController
       end
     end
 
-    def render_error(error, description)
-      @error = error
-      @error_description = description
-      render :error, status: :bad_request
-    end
-
     def valid_state?
       params[:state].nil? || (params[:state].is_a?(String) && params[:state].length <= STATE_MAXIMUM_LENGTH)
     end
