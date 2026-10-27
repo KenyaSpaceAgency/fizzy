@@ -57,6 +57,25 @@ class OauthFlowTest < ActionDispatch::IntegrationTest
     end
 
     assert_response :bad_request
+    assert_select "h2", text: "Can't authorize this app"
+    assert_select "p", text: "Unknown client"
+    assert_select "code", text: "invalid_request"
+  end
+
+  test "authorization answers an invalid client_id as JSON when JSON is asked for" do
+    sign_in_as :david
+
+    untenanted do
+      get new_oauth_authorization_path(format: :json), params: {
+        client_id: "nonexistent",
+        redirect_uri: "http://127.0.0.1/cb",
+        response_type: "code",
+        code_challenge: "test",
+        code_challenge_method: "S256"
+      }
+    end
+
+    assert_response :bad_request
     assert_equal "invalid_request", response.parsed_body["error"]
   end
 
@@ -367,8 +386,8 @@ class OauthFlowTest < ActionDispatch::IntegrationTest
     get_consent_screen scope: "read write"
 
     assert_response :success
-    assert_select "select[name=scope] option[selected]", count: 1
-    assert_select "select[name=scope] option[selected][value=?]", "read write"
+    assert_select "input[type=radio][name=scope][checked]", count: 1
+    assert_select "input[type=radio][name=scope][checked][value=?]", "read write"
   end
 
   test "authorization preselects Read + Write when the client requests write" do
@@ -377,7 +396,7 @@ class OauthFlowTest < ActionDispatch::IntegrationTest
     get_consent_screen scope: "write"
 
     assert_response :success
-    assert_select "select[name=scope] option[selected][value=?]", "read write"
+    assert_select "input[type=radio][name=scope][checked][value=?]", "read write"
   end
 
   test "authorization preselects Read for a read request" do
@@ -386,7 +405,7 @@ class OauthFlowTest < ActionDispatch::IntegrationTest
     get_consent_screen scope: "read"
 
     assert_response :success
-    assert_select "select[name=scope] option[selected][value=?]", "read"
+    assert_select "input[type=radio][name=scope][checked][value=?]", "read"
   end
 
   test "authorization offers no write option to a read-only client" do
@@ -396,8 +415,8 @@ class OauthFlowTest < ActionDispatch::IntegrationTest
     get_consent_screen client: client, scope: "read"
 
     assert_response :success
-    assert_select "select[name=scope] option", count: 1
-    assert_select "select[name=scope] option[value=?]", "read"
+    assert_select "input[type=radio][name=scope]", count: 1
+    assert_select "input[type=radio][name=scope][value=?]", "read"
   end
 
   test "consent grants the canonical read write scope" do

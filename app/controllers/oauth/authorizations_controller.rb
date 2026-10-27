@@ -71,7 +71,7 @@ class Oauth::AuthorizationsController < Oauth::BaseController
       Oauth::Audit.record "code.issued", client: @client, identity_id: Current.identity.id, actor: "user"
       redirect_to success_redirect_uri(code), allow_other_host: true
     else
-      oauth_error "invalid_request", "Unknown client"
+      render_error "invalid_request", "Unknown client"
     end
   end
 
@@ -118,8 +118,9 @@ class Oauth::AuthorizationsController < Oauth::BaseController
       end
 
       unless performed?
+        # There's no client to send the browser back to, so the person is told here.
         if @client.nil?
-          oauth_error "invalid_request", "Unknown client"
+          render_error "invalid_request", "Unknown client"
         elsif !@client.allows_grant_type?("authorization_code")
           oauth_error "unauthorized_client", "Client may not use the authorization code grant"
         end
@@ -134,9 +135,13 @@ class Oauth::AuthorizationsController < Oauth::BaseController
       if denial?
         metadata_document_client_for_denial
       elsif Oauth::Availability.metadata_documents_enabled?(params[:client_id])
-        resolution = Oauth::ClientMetadata::Resolver.new(params[:client_id], requester: Current.identity).resolve(persist: request.post?)
+        resolution = Oauth::ClientMetadata::Resolver.new(params[:client_id], requester: Current.identity).resolve(persist: persist_metadata_document?)
         resolution.client || refuse_metadata_document(resolution)
       end
+    end
+
+    def persist_metadata_document?
+      request.post?
     end
 
     # A denial never registers a client, and stays reachable while metadata
@@ -267,10 +272,17 @@ class Oauth::AuthorizationsController < Oauth::BaseController
       end
     end
 
+    # Shown here rather than sent back to the app, and counted like any OAuth
+    # error the app would have been sent.
     def render_error(error, description)
+      instrument_oauth_error error
       @error = error
       @error_description = description
-      render :error, status: :bad_request
+
+      respond_to do |format|
+        format.html { render :error, status: :bad_request }
+        format.json { render_oauth_error error, description, status: :bad_request }
+      end
     end
 
     def success_redirect_uri(code)

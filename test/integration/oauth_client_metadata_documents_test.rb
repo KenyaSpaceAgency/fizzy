@@ -56,6 +56,25 @@ class OauthClientMetadataDocumentsTest < ActionDispatch::IntegrationTest
     assert_predicate response.parsed_body["refresh_token"], :present?
   end
 
+  test "switching who is signed in registers nothing" do
+    sign_in_as :david
+
+    untenanted { post oauth_authorization_switch_path, params: authorization }
+
+    assert_response :redirect
+    assert_nil Oauth::Client.find_presented(URL)
+  end
+
+  test "Connected apps names the host that set a metadata document client's name" do
+    sign_in_as :david
+    untenanted { post oauth_authorization_path, params: authorization }
+    identities(:david).access_tokens.create! oauth_client: Oauth::Client.find_presented(URL), permission: :read
+
+    untenanted { get my_connected_apps_path }
+
+    assert_select ".connected-app", text: /Name set by the app at claude\.ai/
+  end
+
   test "denying registers nothing" do
     sign_in_as :david
 
@@ -85,7 +104,7 @@ class OauthClientMetadataDocumentsTest < ActionDispatch::IntegrationTest
     untenanted { get new_oauth_authorization_path, params: authorization.merge(client_id: url, redirect_uri: "https://tools.example.com/cb") }
 
     assert_response :bad_request
-    assert_equal "Unknown client", response.parsed_body["error_description"]
+    assert_select "p", text: "Unknown client"
     assert_not_requested stub
   end
 
@@ -109,7 +128,7 @@ class OauthClientMetadataDocumentsTest < ActionDispatch::IntegrationTest
     end
 
     assert_response :bad_request
-    assert_equal "Unknown client", response.parsed_body["error_description"]
+    assert_select "p", text: "Unknown client"
   end
 
   test "a client_id array never reaches a metadata document client" do
@@ -141,7 +160,7 @@ class OauthClientMetadataDocumentsTest < ActionDispatch::IntegrationTest
     untenanted { get new_oauth_authorization_path, params: authorization.merge(client_id: client.client_id) }
 
     assert_response :bad_request
-    assert_equal "Unknown client", response.parsed_body["error_description"]
+    assert_select "p", text: "Unknown client"
   end
 
   test "an unvetted redirect gets no error redirect before consent" do
