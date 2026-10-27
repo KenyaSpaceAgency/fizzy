@@ -22,6 +22,12 @@ class Yabeda::OauthTest < ActionDispatch::IntegrationTest
     assert_operator measured(:token_request_duration_seconds, grant_type: "refresh_token"), :>, 0
   end
 
+  test "a delegation exchange is a token grant" do
+    Oauth::Audit.record "token.exchanged", client: oauth_clients(:confidential_client), actor: "client", grant_type: "token_exchange"
+
+    assert_equal 1, count(:token_grants_total, grant_type: "token_exchange", client_type: "confidential")
+  end
+
   test "token endpoint errors, by code and client type" do
     refresh "fizzy_rt_unknown"
 
@@ -32,6 +38,12 @@ class Yabeda::OauthTest < ActionDispatch::IntegrationTest
     untenanted { post oauth_revocation_path, params: { token: "x", client_id: oauth_clients(:confidential_client).client_id } }
 
     assert_equal 1, count(:token_errors_total, error_code: "invalid_client", client_type: "confidential")
+  end
+
+  test "delegation exchange errors count as token errors" do
+    ActiveSupport::Notifications.instrument "error.oauth", endpoint: "token_exchanges", error_code: "invalid_grant", client_type: "confidential"
+
+    assert_equal 1, count(:token_errors_total, error_code: "invalid_grant", client_type: "confidential")
   end
 
   test "consent approved and denied" do

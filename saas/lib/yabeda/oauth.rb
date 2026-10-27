@@ -16,11 +16,12 @@ module Yabeda
     # Grants span an identity's accounts; there are no account-scoped grants.
     ACCOUNT_SCOPE = "identity"
 
-    # The endpoints whose errors are token errors: the token endpoint and its
-    # RFC 7009 sibling, which authenticates clients the same way, so an
-    # invalid_client spike shows across both. Registration errors are
+    # The endpoints whose errors are token errors: the token endpoint, the
+    # delegation exchange it routes to its own controller, and its RFC 7009
+    # sibling, which authenticates clients the same way, so an invalid_client
+    # spike shows across them all. Registration errors are
     # dcr_rejections_total instead.
-    TOKEN_ERROR_ENDPOINTS = %w[ tokens revocations ]
+    TOKEN_ERROR_ENDPOINTS = %w[ tokens token_exchanges revocations ]
 
     def self.install!
       Yabeda.configure do
@@ -83,7 +84,7 @@ module Yabeda
         payload = event[:payload]
 
         case event[:name]
-        when "oauth.token.issued", "oauth.token.refreshed"
+        when "oauth.token.issued", "oauth.token.refreshed", "oauth.token.exchanged"
           Yabeda.oauth.token_grants_total.increment({ grant_type: payload[:grant_type], client_type: payload[:client_type] })
         when "oauth.consent.approved"
           Yabeda.oauth.authorization_grants_total.increment({ client_type: payload[:client_type], account_scope: ACCOUNT_SCOPE })

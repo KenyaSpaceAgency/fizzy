@@ -32,7 +32,7 @@ class Push::Subscription < ApplicationRecord
   # doesn't carry that account's notifications.
   scope :deliverable_to, ->(user) do
     where(oauth_client_id: nil).or \
-      where(oauth_client_id: Identity::AccessToken.oauth.unlapsed.where(identity_id: user.identity_id, account_id: [ nil, user.account_id ], oauth_client: Oauth::Availability.accepted_clients).select(:oauth_client_id))
+      where(oauth_client_id: Identity::AccessToken.grants.unlapsed.where(identity_id: user.identity_id, account_id: [ nil, user.account_id ], oauth_client: Oauth::Availability.accepted_clients).select(:oauth_client_id))
   end
 
   validates :endpoint, presence: true
