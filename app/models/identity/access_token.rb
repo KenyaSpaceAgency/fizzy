@@ -16,6 +16,10 @@ class Identity::AccessToken < ApplicationRecord
 
   belongs_to :identity
   belongs_to :oauth_client, class_name: "Oauth::Client", optional: true
+  # An account-bound grant reaches this one account and no other (hosted plan,
+  # phase B). Grants for Fizzy's own API, and personal access tokens, have
+  # none and reach every account their identity belongs to.
+  belongs_to :account, optional: true
   has_many :retired_refresh_tokens, class_name: "Oauth::RetiredRefreshToken", dependent: :delete_all
 
   # Rotation locks the grant and then adds a retired token. Destroying takes
@@ -212,6 +216,18 @@ class Identity::AccessToken < ApplicationRecord
   # acts for its holder alone, so what it sets up is attributed to no app.
   def connected_app
     oauth_client if oauth?
+  end
+
+  # An audienced grant was issued for another protected resource (the hosted
+  # MCP server), named at consent by the RFC 8707 resource parameter. It's
+  # that resource's credential, never Fizzy's API's: the API refuses it, and
+  # the resource trades it for an API token through the delegation exchange.
+  def audienced?
+    audience.present?
+  end
+
+  def account_bound?
+    account_id.present?
   end
 
   def allows?(method)
