@@ -38,11 +38,16 @@ class Oauth::TokensController < Oauth::BaseController
   with_options if: :authorization_code_grant? do
     before_action :validate_pkce
     before_action :validate_redirect_uri
+    before_action :answer_code_replay
     before_action :set_identity
+    before_action :require_admitted_identity
     before_action :validate_code_resource
     before_action :validate_bound_account
   end
 
+  # A replay that can't be a retry earns its revocation whoever owns the grant,
+  # so it isn't stopped here: it issues nothing either way.
+  before_action :require_admitted_grant_owner, unless: -> { authorization_code_grant? || unretryable_replay? }
   before_action :validate_refresh_resource, unless: -> { authorization_code_grant? || unretryable_replay? }
   before_action :validate_refresh_bound_account, unless: -> { authorization_code_grant? || unretryable_replay? }
 
@@ -152,6 +157,30 @@ class Oauth::TokensController < Oauth::BaseController
     def set_identity
       unless @identity = Identity.find_by(id: @auth_code.identity_id)
         oauth_error "invalid_grant", "Identity not found"
+      end
+    end
+
+    # While OAuth is staff only, a code or refresh token mints nothing for
+    # someone who isn't staff, even one issued while they were.
+    # A code presented again, by the client it was issued to with its verifier,
+    # is answered as a replay before anything about the person or account is
+    # weighed: the revocation it earns can't hinge on what has changed since.
+    def answer_code_replay
+      if Identity::AccessToken.code_redeemed?(@auth_code)
+        Identity::AccessToken.answer_code_replay(@auth_code, client: @client)
+        oauth_error "invalid_grant", "Authorization code already used"
+      end
+    end
+
+    def require_admitted_identity
+      unless Oauth::Availability.admits?(@identity)
+        oauth_error "invalid_grant", "OAuth apps are limited to 37signals staff for now"
+      end
+    end
+
+    def require_admitted_grant_owner
+      unless @access_token.personal? || Oauth::Availability.admits?(@access_token.identity)
+        oauth_error "invalid_grant", "OAuth apps are limited to 37signals staff for now"
       end
     end
 

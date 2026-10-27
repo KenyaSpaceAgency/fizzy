@@ -23,6 +23,8 @@ class Oauth::AuthorizationsController < Oauth::BaseController
   before_action :require_authentication
   disallow_oauth_grants
 
+  before_action :require_admitted_identity, unless: :denial?
+
   before_action :set_client
   before_action :validate_redirect_uri
   before_action :validate_single_valued_parameters
@@ -80,6 +82,17 @@ class Oauth::AuthorizationsController < Oauth::BaseController
 
     def denial?
       request.post? && params[:error] == "access_denied"
+    end
+
+    # While OAuth is staff only, nobody else is asked to consent. They're told
+    # why, rather than bounced back to an app that can't say.
+    def require_admitted_identity
+      unless Oauth::Availability.admits?(Current.identity)
+        respond_to do |format|
+          format.html { render :staff_only, status: :forbidden }
+          format.json { render_oauth_error "access_denied", "OAuth apps are limited to 37signals staff for now", status: :forbidden }
+        end
+      end
     end
 
     # Runs before authentication, so a person already signed in is told apart

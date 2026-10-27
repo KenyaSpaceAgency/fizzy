@@ -206,11 +206,26 @@ class Identity::AccessToken < ApplicationRecord
         create! authorization_code_jti: authorization_code.jti, **attributes
       end
     rescue ActiveRecord::RecordNotUnique
-      replayed = where(authorization_code_jti: authorization_code.jti).each { |grant| grant.revoke(reason: "code_replayed", actor: "system") }
-      # The code names its identity even when no grant is left to.
-      Oauth::Audit.record "code.replayed", grant: replayed.first, client: attributes[:oauth_client], identity_id: authorization_code.identity_id, actor: "client"
-      remember_redeemed authorization_code
+      answer_code_replay authorization_code, client: attributes[:oauth_client]
       nil
+    end
+
+    # Whether a code has been redeemed before: recorded, or, for one redeemed
+    # before redemptions were recorded, stamped on the grant it minted.
+    def code_redeemed?(authorization_code)
+      Oauth::RedeemedAuthorizationCode.exists?(jti: authorization_code.jti) || unscoped.exists?(authorization_code_jti: authorization_code.jti)
+    end
+
+    # A replayed code revokes the grant its first redemption issued, whoever
+    # presents it and whatever has changed since, and mints nothing.
+    # The revocations report as they commit, after the replay that caused them.
+    def answer_code_replay(authorization_code, client:)
+      transaction do
+        replayed = unscoped.where(authorization_code_jti: authorization_code.jti).each { |grant| grant.revoke(reason: "code_replayed", actor: "system") }
+        # The code names its identity even when no grant is left to.
+        Oauth::Audit.record "code.replayed", grant: replayed.first, client: client, identity_id: authorization_code.identity_id, actor: "client"
+        remember_redeemed authorization_code
+      end
     end
 
     private
@@ -268,7 +283,7 @@ class Identity::AccessToken < ApplicationRecord
   # write once that grant can't: a refresh that narrows the grant to read
   # narrows the tokens delegated from it too.
   def honored?
-    honored_client? && (!delegated? || honored_delegation?)
+    honored_client? && honored_identity? && (!delegated? || honored_delegation?)
   end
 
   def personal?
@@ -388,6 +403,14 @@ class Identity::AccessToken < ApplicationRecord
     def honored_delegation?
       grant = self.class.grants.unlapsed.find_by(id: delegated_from_id)
       grant.present? && grant.honored_client? && (read? || grant.write?)
+    end
+
+    # While OAuth is staff only, an OAuth token works only for staff, so a
+    # grant stops working once its owner isn't. A personal access token isn't
+    # OAuth and always works. The switch is checked first, so an install that
+    # isn't staff only doesn't load each token's client to tell.
+    def honored_identity?
+      !Oauth::Availability.staff_only? || personal? || identity&.staff? == true
     end
 
     def honored_client?
