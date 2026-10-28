@@ -21,9 +21,8 @@ class Oauth::Client < ApplicationRecord
   # endpoints never mint, refresh or exchange its tokens: only
   # My::AccessTokensController issues them. Its client_id has a hyphen, which
   # no generated client_id (base58) can, so no other client can ever claim it.
+  # Its attributes are Oauth::FirstPartyClients' to say.
   PERSONAL_ACCESS_CLIENT_ID = "fizzy-personal-access"
-  PERSONAL_ACCESS_ATTRIBUTES = { client_id: PERSONAL_ACCESS_CLIENT_ID, name: "Personal Access Tokens",
-    trusted: true, dynamically_registered: false, redirect_uris: [], scopes: %w[ read write ], token_endpoint_auth_method: "none" }
 
   has_many :access_tokens, class_name: "Identity::AccessToken", foreign_key: :oauth_client_id, inverse_of: :oauth_client, dependent: :destroy
 
@@ -98,36 +97,18 @@ class Oauth::Client < ApplicationRecord
     # winner committed before its uniqueness validation ran, fails that
     # validation, and then finds the winner's row the same way.
     def personal_access_issuer
-      personal_access.take || create_or_find_by!(client_id: PERSONAL_ACCESS_CLIENT_ID) { it.assign_attributes PERSONAL_ACCESS_ATTRIBUTES }
+      personal_access.take || create_or_find_by!(client_id: PERSONAL_ACCESS_CLIENT_ID) do |client|
+        client.assign_attributes Oauth::FirstPartyClients.attributes_for(PERSONAL_ACCESS_CLIENT_ID)
+      end
     rescue ActiveRecord::RecordInvalid
       personal_access.take or raise
     end
   end
 
-  # The hosted MCP server's own client, by the id its deployment names
-  # (FIZZY_MCP_EXCHANGE_CLIENT_ID).
+  # The hosted production MCP server's client (Oauth::FirstPartyClients), and
+  # the client_id oauth:provision_mcp_client gives any other MCP server unless
+  # told otherwise.
   MCP_CLIENT_ID = "fizzy-mcp-server"
-
-  # Creates or converges an MCP server's client (bin/rails
-  # oauth:provision_mcp_client). A new one gets a secret nobody holds, so it
-  # can't authenticate until oauth:mint_client_secret gives it one; an
-  # existing one keeps the secret it has.
-  #
-  # Each client fronts one resource, so each configured resource needs a
-  # client of its own: one already fronting another resource that's still
-  # configured is refused rather than repointed, which would strand every
-  # grant audienced to that resource. One whose resource has been dropped
-  # from the configuration may move.
-  def self.provision_mcp_client!(protected_resource:, client_id: MCP_CLIENT_ID)
-    find_or_initialize_by(client_id: client_id).tap do |client|
-      if client.protected_resource != protected_resource && client.delegation_client?
-        raise ArgumentError, "#{client_id} already fronts #{client.protected_resource}; give #{protected_resource} a client of its own"
-      else
-        client.update! name: "Fizzy MCP server", protected_resource: protected_resource, scopes: %w[ read write ],
-          redirect_uris: [], token_endpoint_auth_method: "client_secret_post", dynamically_registered: false, trusted: false
-      end
-    end
-  end
 
   # The sweep and #redeem take the same row lock, so a grant either lands
   # before the recheck, which then spares the client, or finds the client

@@ -14,7 +14,7 @@ class OauthTokenExchangeTest < ActionDispatch::IntegrationTest
     @saved_resources = Rails.application.config.x.oauth.mcp_resources
     Rails.application.config.x.oauth.mcp_resources = [ RESOURCE ]
 
-    @client = Oauth::Client.provision_mcp_client!(protected_resource: RESOURCE)
+    @client = Oauth::FirstPartyClients.provision_mcp_server!(RESOURCE)
     @secret = @client.rotate_secret!
     @subject = audienced_grant
   end

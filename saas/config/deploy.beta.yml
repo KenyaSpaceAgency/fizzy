@@ -122,7 +122,7 @@ accessories:
 
   # Hosted Fizzy MCP (see saas/config/deploy.yml), on the beta's one web host. A beta shares production's
   # database, and an MCP client fronts exactly one resource, so a beta's exchange needs a client row of its
-  # own (fizzy-mcp-server-beta<N>, oauth:provision_mcp_client CLIENT_ID=…), never production's.
+  # own (fizzy-mcp-server-beta<N>, registered in Oauth::FirstPartyClients), never production's.
   fizzy_mcp:
     host: <%= @web_hosts[0] %>
     proxy:
