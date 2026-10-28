@@ -169,6 +169,16 @@ class Oauth::FirstPartyClientsTest < ActiveSupport::TestCase
     assert_equal PRODUCTION, client("fizzy-mcp-server").protected_resource
   end
 
+  test "a self-hosted MCP server may name the default client_id, as it may omit it" do
+    serve "https://mcp.self-hosted.example.com/mcp"
+
+    named = Oauth::FirstPartyClients.provision_mcp_server!("https://mcp.self-hosted.example.com/mcp", client_id: "fizzy-mcp-server")
+    omitted = Oauth::FirstPartyClients.provision_mcp_server!("https://mcp.self-hosted.example.com/mcp")
+
+    assert_equal "fizzy-mcp-server", named.client_id
+    assert_equal named, omitted
+  end
+
   test "a hosted resource and its client can't be provisioned apart" do
     serve PRODUCTION, BETA1, "https://other.example.com/mcp"
 

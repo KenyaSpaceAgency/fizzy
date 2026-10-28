@@ -88,11 +88,13 @@ module Oauth::FirstPartyClients
 
     # One MCP server's client, outside the hosted registry, by the client_id
     # its deployment names (oauth:provision_mcp_client). A hosted resource and
-    # its client stay paired: neither can be provisioned under another's name.
+    # a beta's client stay paired: neither can be provisioned under another's
+    # name. Any other server may take fizzy-mcp-server, the default, named or
+    # not; converge! keeps it off production's row wherever that exists.
     def provision_mcp_server!(resource, client_id: nil)
       hosted_client_id = HOSTED_MCP_SERVERS[resource]
-      hosted_resource = HOSTED_MCP_SERVERS.key(client_id)
       client_id ||= hosted_client_id || Oauth::Client::MCP_CLIENT_ID
+      hosted_resource = HOSTED_MCP_SERVERS.key(client_id) unless client_id == Oauth::Client::MCP_CLIENT_ID
 
       if (hosted_client_id && hosted_client_id != client_id) || (hosted_resource && hosted_resource != resource)
         raise ArgumentError, "#{resource} and #{client_id} aren't a hosted pair; hosted MCP servers converge with oauth:provision_first_party_clients"
