@@ -7,7 +7,7 @@ class Oauth::TokenDelegationTest < ActiveSupport::TestCase
     @saved_resources = Rails.application.config.x.oauth.mcp_resources
     Rails.application.config.x.oauth.mcp_resources = [ RESOURCE ]
 
-    @client = Oauth::Client.provision_mcp_client!(protected_resource: RESOURCE)
+    @client = Oauth::FirstPartyClients.provision_mcp_server!(RESOURCE)
     @subject = identities(:david).access_tokens.create! \
       oauth_client: oauth_clients(:mcp_client), permission: :write, audience: RESOURCE, account: accounts("37s")
   end
@@ -176,7 +176,7 @@ class Oauth::TokenDelegationTest < ActiveSupport::TestCase
   test "provisioning converges the client and keeps its secret" do
     secret = @client.rotate_secret!
 
-    client = Oauth::Client.provision_mcp_client!(protected_resource: RESOURCE)
+    client = Oauth::FirstPartyClients.provision_mcp_server!(RESOURCE)
 
     assert_equal @client, client
     assert client.authenticate_secret(secret)
@@ -188,10 +188,10 @@ class Oauth::TokenDelegationTest < ActiveSupport::TestCase
     other = "https://other.example.com/mcp"
     Rails.application.config.x.oauth.mcp_resources = [ RESOURCE, other ]
 
-    assert_raises(ArgumentError) { Oauth::Client.provision_mcp_client!(protected_resource: other) }
+    assert_raises(ArgumentError) { Oauth::FirstPartyClients.provision_mcp_server!(other) }
     assert_equal RESOURCE, @client.reload.protected_resource
 
-    second = Oauth::Client.provision_mcp_client!(protected_resource: other, client_id: "fizzy-mcp-server-other")
+    second = Oauth::FirstPartyClients.provision_mcp_server!(other, client_id: "fizzy-mcp-server-other")
     assert second.delegation_client?
     assert_not_equal @client, second
   end
@@ -200,14 +200,15 @@ class Oauth::TokenDelegationTest < ActiveSupport::TestCase
     moved = "https://mcp.example.com/v2/mcp"
     Rails.application.config.x.oauth.mcp_resources = [ moved ]
 
-    client = Oauth::Client.provision_mcp_client!(protected_resource: moved)
+    client = Oauth::FirstPartyClients.provision_mcp_server!(moved)
 
     assert_equal @client, client
     assert_equal moved, client.protected_resource
   end
 
-  test "a new client holds a secret nobody knows until one is minted" do
-    assert @client.client_secret_digest.present?
+  test "a new client holds no secret until one is minted" do
+    assert_nil @client.client_secret_digest
+    assert_not @client.authenticate_secret("")
 
     secret = @client.rotate_secret!
 
