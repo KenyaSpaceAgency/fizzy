@@ -49,7 +49,7 @@ class Oauth::FirstPartyClientsTest < ActiveSupport::TestCase
       client_secret_digest: TokenDigester.digest("stray"), redirect_uris: [ "https://evil.example.com/callback" ],
       scopes: %w[ read write admin ], trusted: false, dynamically_registered: true, client_id_metadata_document: true,
       metadata_etag: "etag", metadata_expires_at: 1.day.from_now, metadata_fetched_at: Time.current,
-      protected_resource: "https://elsewhere.example.com/mcp"
+      protected_resource: PRODUCTION
     client("fizzy-mcp-server").update_columns token_endpoint_auth_method: "none", trusted: true,
       redirect_uris: [ "https://evil.example.com/callback" ], scopes: %w[ read ], dynamically_registered: true,
       client_id_metadata_document: true, metadata_etag: "etag"
@@ -86,6 +86,19 @@ class Oauth::FirstPartyClientsTest < ActiveSupport::TestCase
 
     assert Oauth::FirstPartyClients.awaiting_secret?(clients["fizzy-mcp-server"])
     assert_not Oauth::FirstPartyClients.awaiting_secret?(clients["fizzy-personal-access"])
+  end
+
+  test "a client stays awaiting a secret across converges until one is minted" do
+    serve PRODUCTION
+    Oauth::FirstPartyClients.provision!
+
+    converged = Oauth::FirstPartyClients.provision!.find { it.client_id == "fizzy-mcp-server" }
+
+    assert Oauth::FirstPartyClients.awaiting_secret?(converged)
+    assert_not converged.authenticate_secret("")
+
+    converged.rotate_secret!
+    assert_not Oauth::FirstPartyClients.awaiting_secret?(converged.reload)
   end
 
   test "a client turned off by clearing its secret stays off" do
@@ -142,6 +155,15 @@ class Oauth::FirstPartyClientsTest < ActiveSupport::TestCase
   test "a client fronting a configured resource isn't repointed" do
     serve PRODUCTION, "https://other.example.com/mcp"
     Oauth::FirstPartyClients.provision!
+
+    assert_raises(ArgumentError) { Oauth::FirstPartyClients.provision_mcp_server!("https://other.example.com/mcp") }
+    assert_equal PRODUCTION, client("fizzy-mcp-server").protected_resource
+  end
+
+  test "a hosted client isn't repointed from a destination that doesn't serve its resource" do
+    serve PRODUCTION
+    Oauth::FirstPartyClients.provision!
+    serve "https://other.example.com/mcp"
 
     assert_raises(ArgumentError) { Oauth::FirstPartyClients.provision_mcp_server!("https://other.example.com/mcp") }
     assert_equal PRODUCTION, client("fizzy-mcp-server").protected_resource

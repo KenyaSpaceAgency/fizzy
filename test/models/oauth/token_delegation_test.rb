@@ -206,8 +206,9 @@ class Oauth::TokenDelegationTest < ActiveSupport::TestCase
     assert_equal moved, client.protected_resource
   end
 
-  test "a new client holds a secret nobody knows until one is minted" do
-    assert @client.client_secret_digest.present?
+  test "a new client holds no secret until one is minted" do
+    assert_nil @client.client_secret_digest
+    assert_not @client.authenticate_secret("")
 
     secret = @client.rotate_secret!
 

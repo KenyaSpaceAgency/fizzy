@@ -80,10 +80,10 @@ module Oauth::FirstPartyClients
     end
 
     # A confidential client that can't authenticate until
-    # oauth:mint_client_secret gives it a secret: one created by this converge,
-    # whose secret nobody was shown, or one whose secret was cleared.
+    # oauth:mint_client_secret gives it a secret: one never minted, or one
+    # whose secret was cleared. Either has no digest, run after run.
     def awaiting_secret?(client)
-      client.confidential? && (client.previously_new_record? || client.client_secret_digest.blank?)
+      client.confidential? && client.client_secret_digest.blank?
     end
 
     # One MCP server's client, outside the hosted registry, by the client_id
@@ -101,10 +101,17 @@ module Oauth::FirstPartyClients
       end
     end
 
-    # Each client fronts one resource, so one already fronting another
-    # resource that's still configured is refused rather than repointed,
-    # which would strand every grant audienced to that resource. One whose
-    # resource has been dropped from the configuration may move.
+    # Each client fronts one resource, so an MCP client already fronting
+    # another resource is refused rather than repointed, which would strand
+    # every grant audienced to that resource, when that resource is still
+    # configured here or is a hosted one. Production and the betas share a
+    # database, and each configures only its own resource, so a hosted row is
+    # never safe to move from any of them. Any other client whose resource
+    # has been dropped from the configuration may move.
+    #
+    # The model gives a new confidential client a throwaway secret nobody
+    # holds. A registry client gets none instead, so that awaiting_secret?
+    # reports it until oauth:mint_client_secret gives it one.
     def converge!(definitions)
       Oauth::Client.transaction do
         definitions.map do |client_id, definition|
@@ -115,10 +122,11 @@ module Oauth::FirstPartyClients
             attributes.delete(:client_secret_digest)
           end
 
-          if client.protected_resource != attributes[:protected_resource] && client.delegation_client?
-            raise ArgumentError, "#{client_id} already fronts #{client.protected_resource}; give #{attributes[:protected_resource] || "it"} a client of its own"
+          if attributes[:protected_resource] && client.protected_resource != attributes[:protected_resource] && fronting_for_good?(client)
+            raise ArgumentError, "#{client_id} already fronts #{client.protected_resource}; give #{attributes[:protected_resource]} a client of its own"
           else
             client.update! attributes
+            client.update_columns client_secret_digest: nil if client.previously_new_record? && client.confidential?
             client
           end
         end
@@ -126,6 +134,10 @@ module Oauth::FirstPartyClients
     end
 
     private
+      def fronting_for_good?(client)
+        client.delegation_client? || HOSTED_MCP_SERVERS.key?(client.protected_resource)
+      end
+
       def mcp_server(resource)
         { name: "Fizzy MCP server", token_endpoint_auth_method: "client_secret_post", scopes: %w[ read write ], protected_resource: resource }
       end
